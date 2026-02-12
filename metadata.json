@@ -1,0 +1,7 @@
+{
+  "name": "EduBridge Mobile",
+  "description": "A low-bandwidth optimized educational platform simulating WhatsApp and USSD interfaces for accessible learning.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
