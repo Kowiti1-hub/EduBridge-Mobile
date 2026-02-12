@@ -7,7 +7,6 @@ import ChatBubble from './components/ChatBubble';
 import SubjectGrid from './components/SubjectGrid';
 import { generateEducationalResponse } from './services/geminiService';
 
-// Extend Window interface for SpeechRecognition
 declare global {
   interface Window {
     SpeechRecognition: any;
@@ -27,10 +26,12 @@ const App: React.FC = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note'>('menu');
+  const [noteInput, setNoteInput] = useState('');
+  const [showConfetti, setShowConfetti] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Initialize Speech Recognition
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -43,24 +44,15 @@ const App: React.FC = () => {
         const transcript = event.results[0][0].transcript;
         setInput(transcript);
         setIsListening(false);
-        // Automatically send the voice input
         handleUssdInput(transcript);
       };
 
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
     }
   }, []);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -72,7 +64,6 @@ const App: React.FC = () => {
       alert("Speech recognition is not supported in this browser.");
       return;
     }
-
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
@@ -82,7 +73,7 @@ const App: React.FC = () => {
     }
   };
 
-  const addMessage = (content: string, type: MessageType, isUssd = false, metadata?: { lessonNum?: number, totalLessons?: number }) => {
+  const addMessage = (content: string, type: MessageType, isUssd = false, metadata?: { lessonNum?: number, totalLessons?: number, isComplete?: boolean, url?: string }) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       content,
@@ -103,28 +94,14 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSend = async (text: string) => {
-    if (!text.trim()) return;
-    
-    setInput('');
-    addMessage(text, MessageType.USER);
-    setIsThinking(true);
-
-    const response = await generateEducationalResponse(text, messages, currentSubject?.title || null);
-    
-    setIsThinking(false);
-    addMessage(response, MessageType.BOT);
-  };
-
   const selectSubject = (subject: Subject) => {
     setCurrentSubject(subject);
-    setCurrentLesson(1); // Reset lesson progress for new subject
-    setIsCourseCompleted(false); // Reset completion status
+    setCurrentLesson(1);
+    setIsCourseCompleted(false);
+    setShowConfetti(false);
     setView('chat');
     addMessage(`Started: ${subject.title}`, MessageType.SYSTEM);
     addMessage(`Hello! Let's learn ${subject.title}.`, MessageType.BOT);
-    
-    // Deliver the first lesson immediately
     deliverLesson(subject.id, 1);
   };
 
@@ -134,36 +111,50 @@ const App: React.FC = () => {
     addMessage(USSD_MENU, MessageType.BOT, true);
   };
 
-  const handleAttachment = (type: 'summary' | 'link') => {
+  const handleSendLink = () => {
+    if (!currentSubject) return;
+    const url = `https://edubridge.org/ref/${currentSubject.id}/L${currentLesson}`;
+    addMessage(`Found a helpful resource for our ${currentSubject.title} lesson!`, MessageType.LINK, false, { url });
     setIsAttachmentMenuOpen(false);
-    if (!currentSubject) {
-      addMessage("Please select a subject first to share resources.", MessageType.BOT);
-      return;
-    }
+  };
 
-    const currentLessonData = LESSON_DATA[currentSubject.id]?.[currentLesson];
-
-    if (type === 'summary') {
-      addMessage("📎 Requesting Lesson Summary...", MessageType.USER);
-      const summary = `📝 *SUMMARY: ${currentLessonData?.title || currentSubject.title}*\n\nKey Concept: ${currentLessonData?.theory || 'Foundational principles of ' + currentSubject.title}.\n\nKeep this for your records! (Size: 0.4KB)`;
-      setTimeout(() => addMessage(summary, MessageType.BOT), 500);
-    } else {
-      addMessage("📎 Requesting External Resource...", MessageType.USER);
-      const link = `🌐 *OFFLINE RESOURCE LINK*\n\nYou can access the full ${currentSubject.title} library via our SMS-link service:\n\nhttp://edu-bridge.org/ref/${currentSubject.id}_l${currentLesson}\n\n(Standard SMS rates may apply)`;
-      setTimeout(() => addMessage(link, MessageType.BOT), 500);
-    }
+  const handleSendNote = () => {
+    if (!noteInput.trim()) return;
+    addMessage(noteInput, MessageType.NOTE);
+    setNoteInput('');
+    setAttachmentMode('menu');
+    setIsAttachmentMenuOpen(false);
   };
 
   const handleUssdInput = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-
     setInput('');
 
-    // Handle lesson progression
-    if (trimmed.toLowerCase() === 'next') {
-      if (isCourseCompleted) return; // Prevent extra clicks
+    // Shortcut for Attachment Menu
+    if (trimmed === '*5#') {
+      addMessage("*5#", MessageType.USER, true);
+      setIsAttachmentMenuOpen(true);
+      setAttachmentMode('menu');
+      return;
+    }
 
+    // Number navigation while attachment menu is open
+    if (isAttachmentMenuOpen && attachmentMode === 'menu') {
+      if (trimmed === '1') {
+        addMessage("1", MessageType.USER, true);
+        setAttachmentMode('note');
+        return;
+      }
+      if (trimmed === '2') {
+        addMessage("2", MessageType.USER, true);
+        handleSendLink();
+        return;
+      }
+    }
+
+    if (trimmed.toLowerCase() === 'next') {
+      if (isCourseCompleted) return;
       const nextLesson = currentLesson + 1;
       if (nextLesson <= TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
@@ -173,22 +164,23 @@ const App: React.FC = () => {
       } else if (nextLesson > TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
         setIsCourseCompleted(true);
-        addMessage(`🎓 *Congratulations!*\n\nYou have successfully completed the ${currentSubject.title} course. Type 'Menu' to choose another subject.`, MessageType.BOT);
+        setShowConfetti(true);
+        addMessage(`🎓 Congratulations! You have successfully completed the ${currentSubject.title} course. Type 'Menu' to choose another subject.`, MessageType.BOT, false, { lessonNum: TOTAL_LESSONS, totalLessons: TOTAL_LESSONS, isComplete: true });
+        setTimeout(() => setShowConfetti(false), 5000);
         return;
       }
     }
 
-    // Handle lesson regression
     if (trimmed.toLowerCase() === 'previous' || trimmed === '*99#') {
       if (currentSubject) {
         if (isCourseCompleted) {
           addMessage('Previous', MessageType.USER);
           setIsCourseCompleted(false);
+          setShowConfetti(false);
           setCurrentLesson(TOTAL_LESSONS);
           deliverLesson(currentSubject.id, TOTAL_LESSONS);
           return;
         }
-
         const prevLesson = currentLesson - 1;
         if (prevLesson >= 1) {
           addMessage('Previous', MessageType.USER);
@@ -202,20 +194,15 @@ const App: React.FC = () => {
       }
     }
 
-    // Handle return to menu
     if (trimmed.toLowerCase() === 'menu') {
       setView('home');
       return;
     }
 
-    // Handle direct USSD codes like *123*1#
     if (trimmed.startsWith('*') && trimmed.endsWith('#')) {
       const parts = trimmed.slice(1, -1).split('*');
       if (parts[0] === '123') {
-        if (parts.length === 1) {
-          triggerUssd();
-          return;
-        }
+        if (parts.length === 1) { triggerUssd(); return; }
         if (parts.length === 2) {
           const num = parseInt(parts[1]);
           if (!isNaN(num) && num >= 1 && num <= SUBJECTS.length) {
@@ -227,27 +214,40 @@ const App: React.FC = () => {
       }
     }
 
-    // Handle menu navigation (0 for Help Guide)
     if (trimmed === '0') {
       addMessage('0', MessageType.USER, true);
       addMessage(HELP_MESSAGE, MessageType.BOT, true);
       return;
     }
 
-    // Handle numeric selection for subjects
     const num = parseInt(trimmed);
     if (!isNaN(num) && num >= 1 && num <= SUBJECTS.length) {
       addMessage(trimmed, MessageType.USER, true);
       selectSubject(SUBJECTS[num - 1]);
     } else {
-      // Regular chat message
       handleSend(trimmed);
     }
   };
 
+  const handleSend = async (text: string) => {
+    if (!text.trim()) return;
+    setInput('');
+    addMessage(text, MessageType.USER);
+    setIsThinking(true);
+    const response = await generateEducationalResponse(text, messages, currentSubject?.title || null);
+    setIsThinking(false);
+    addMessage(response, MessageType.BOT);
+  };
+
   return (
     <div className="flex flex-col h-full max-w-lg mx-auto bg-gray-50 border-x border-gray-200 shadow-2xl relative overflow-hidden">
-      {/* Mobile-First Status Bar Simulation */}
+      {showConfetti && Array.from({ length: 20 }).map((_, i) => (
+        <div key={i} className="confetti" style={{ 
+          left: `${Math.random() * 100}%`, 
+          backgroundColor: ['#10b981', '#fbbf24', '#3b82f6', '#ef4444'][Math.floor(Math.random() * 4)],
+          animationDelay: `${Math.random() * 2}s`
+        }} />
+      ))}
       <div className="absolute top-0 w-full h-6 bg-black/10 flex items-center justify-between px-4 pointer-events-none z-20">
          <span className="text-[10px] text-white font-bold">EduNet 4G</span>
          <div className="flex gap-1 items-center">
@@ -257,8 +257,6 @@ const App: React.FC = () => {
            <span className="text-[10px] text-white font-bold ml-1">82%</span>
          </div>
       </div>
-
-      {/* Header */}
       <header className="bg-emerald-600 text-white p-4 pt-8 shadow-md flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           {view === 'chat' && (
@@ -273,17 +271,56 @@ const App: React.FC = () => {
             <p className="text-[10px] opacity-90 uppercase tracking-tighter">Low Data Education Network</p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={triggerUssd}
-            className="text-[10px] bg-white/20 px-2 py-1 rounded border border-white/30 font-mono active:bg-white/40 transition-colors"
-          >
-            *123#
-          </button>
-        </div>
+        <button onClick={triggerUssd} className="text-[10px] bg-white/20 px-2 py-1 rounded border border-white/30 font-mono active:bg-white/40">*123#</button>
       </header>
 
-      {/* Main Content */}
+      {/* HORIZONTAL NAVIGATION BAR - TOP ALIGNED */}
+      {view === 'chat' && currentSubject && (
+        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-gray-200 px-3 py-2 flex items-center justify-between shadow-sm">
+          <button
+            onClick={() => handleUssdInput('Previous')}
+            disabled={currentLesson === 1 && !isCourseCompleted}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              currentLesson === 1 && !isCourseCompleted
+                ? 'text-gray-300 cursor-not-allowed'
+                : 'text-gray-600 hover:bg-gray-100 active:scale-95'
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+            </svg>
+            Prev
+          </button>
+
+          <div className={`px-4 py-1.5 rounded-full flex flex-col items-center transition-all ${isCourseCompleted ? 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200' : 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'}`}>
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
+              {isCourseCompleted ? 'Completed' : `Lesson ${currentLesson} / ${TOTAL_LESSONS}`}
+            </span>
+            <div className="w-12 h-1 bg-gray-200 rounded-full mt-1 overflow-hidden">
+               <div 
+                 className={`h-full transition-all duration-500 ${isCourseCompleted ? 'bg-yellow-400' : 'bg-emerald-500'}`} 
+                 style={{ width: `${(currentLesson/TOTAL_LESSONS) * 100}%` }}
+               />
+            </div>
+          </div>
+
+          <button
+            onClick={() => handleUssdInput('Next')}
+            disabled={isCourseCompleted}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              isCourseCompleted
+                ? 'text-gray-300 cursor-not-allowed'
+                : 'text-emerald-600 hover:bg-emerald-50 active:scale-95'
+            }`}
+          >
+            Next
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <main className="flex-1 overflow-y-auto whatsapp-bg relative" ref={scrollRef}>
         {view === 'home' ? (
           <div className="pb-20">
@@ -295,174 +332,118 @@ const App: React.FC = () => {
                 <p className="text-xs text-emerald-900 font-medium italic">"An investment in knowledge pays the best interest."</p>
               </div>
             </div>
-
             <h2 className="px-6 text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Subjects</h2>
             <SubjectGrid onSelect={selectSubject} />
-
             <div className="p-4 mt-4">
-              <button 
-                onClick={triggerUssd}
-                className="w-full bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group hover:bg-slate-900 transition-all active:scale-[0.98]"
-              >
-                <div className="text-left">
-                  <span className="block font-bold">Launch USSD Portal</span>
-                  <span className="text-[10px] opacity-60">Interactive Menu (*123#)</span>
-                </div>
+              <button onClick={triggerUssd} className="w-full bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group hover:bg-slate-900 transition-all active:scale-[0.98]">
+                <div className="text-left"><span className="block font-bold">Launch USSD Portal</span><span className="text-[10px] opacity-60">Interactive Menu (*123#)</span></div>
                 <span className="text-2xl group-hover:translate-x-1 transition-transform">📱</span>
               </button>
             </div>
           </div>
         ) : (
           <div className="p-4 pb-32">
-            {messages.length === 0 && (
-              <div className="text-center py-20">
-                <div className="text-4xl mb-4">👋</div>
-                <p className="text-gray-500 text-sm">Send a message, dial a number, or use your voice!</p>
-              </div>
-            )}
-            {messages.map((msg) => (
-              <ChatBubble key={msg.id} message={msg} />
-            ))}
-            {isThinking && (
-              <div className="flex justify-start mb-3">
-                <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-1">
-                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div>
-                </div>
-              </div>
-            )}
+            {messages.length === 0 && <div className="text-center py-20"><div className="text-4xl mb-4">👋</div><p className="text-gray-500 text-sm">Send a message, dial a number, or use your voice!</p></div>}
+            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} />)}
+            {isThinking && <div className="flex justify-start mb-3"><div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-1"><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div></div></div>}
           </div>
         )}
       </main>
 
-      {/* Attachment Menu Overlay */}
-      {isAttachmentMenuOpen && (
-        <div className="absolute bottom-[72px] left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-4 duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-2 overflow-hidden">
-            <button 
-              onClick={() => handleAttachment('summary')}
-              className="w-full flex items-center gap-4 p-4 hover:bg-emerald-50 rounded-xl transition-colors text-left"
-            >
-              <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      {/* Attachment Menu Modal */}
+      {view === 'chat' && isAttachmentMenuOpen && (
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-end justify-center p-4">
+          <div className="w-full bg-white rounded-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Learning Attachments</h3>
+              <button onClick={() => { setIsAttachmentMenuOpen(false); setAttachmentMode('menu'); }} className="text-gray-400 p-1">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                 </svg>
-              </div>
-              <div>
-                <span className="block font-bold text-gray-800">Lesson Summary</span>
-                <span className="text-[10px] text-gray-500">Compact text digest (No Data Cost)</span>
-              </div>
-            </button>
-            <button 
-              onClick={() => handleAttachment('link')}
-              className="w-full flex items-center gap-4 p-4 hover:bg-emerald-50 rounded-xl transition-colors text-left"
-            >
-              <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-              </div>
-              <div>
-                <span className="block font-bold text-gray-800">Resource Link</span>
-                <span className="text-[10px] text-gray-500">External SMS/Text Reference</span>
-              </div>
-            </button>
-            <button 
-              onClick={() => setIsAttachmentMenuOpen(false)}
-              className="w-full text-center py-2 text-xs text-gray-400 font-medium border-t border-gray-100 mt-2"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Persistent Navigation Controls & Progress Indicator */}
-      {view === 'chat' && currentSubject && (
-        <div className="absolute bottom-[80px] left-0 right-0 flex flex-col items-center pointer-events-none z-10 gap-2">
-          <div className="flex flex-col gap-1.5 items-center">
-            <button
-              onClick={() => handleUssdInput('Next')}
-              disabled={isCourseCompleted}
-              className={`pointer-events-auto px-5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border w-40 justify-center ${
-                isCourseCompleted 
-                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
-                  : 'bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-600 active:scale-95'
-              }`}
-            >
-              {isCourseCompleted ? 'Course Finished' : 'Next Lesson'} <span>{isCourseCompleted ? '🎉' : '➡️'}</span>
-            </button>
+              </button>
+            </div>
             
-            <button
-              onClick={() => handleUssdInput('Previous')}
-              disabled={currentLesson === 1 && !isCourseCompleted}
-              className={`pointer-events-auto px-5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border w-40 justify-center ${
-                currentLesson === 1 && !isCourseCompleted
-                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
-                  : 'bg-white/95 backdrop-blur-md border-gray-200 text-gray-600 hover:bg-gray-50 active:scale-95'
-              }`}
-            >
-              <span>⬅️</span> Previous Lesson
-            </button>
-          </div>
-
-          <div className="bg-black/40 backdrop-blur-md px-3 py-1 rounded-full shadow-sm text-[10px] text-white font-bold uppercase tracking-widest border border-white/10">
-            {isCourseCompleted ? '🎓 COMPLETED' : `Lesson ${currentLesson} of ${TOTAL_LESSONS}`}
+            <div className="p-4">
+              {attachmentMode === 'menu' ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setAttachmentMode('note')}
+                    className="flex flex-col items-center gap-2 p-4 rounded-2xl border-2 border-amber-50 bg-amber-50 hover:border-amber-200 transition-all active:scale-95 group relative"
+                  >
+                    <div className="absolute top-2 left-2 w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-[10px] font-bold text-amber-700">1</div>
+                    <div className="w-12 h-12 bg-amber-400 text-white rounded-full flex items-center justify-center text-xl shadow-sm">📌</div>
+                    <span className="text-xs font-bold text-amber-800">Text Note</span>
+                  </button>
+                  <button 
+                    onClick={handleSendLink}
+                    className="flex flex-col items-center gap-2 p-4 rounded-2xl border-2 border-blue-50 bg-blue-50 hover:border-blue-200 transition-all active:scale-95 group relative"
+                  >
+                    <div className="absolute top-2 left-2 w-5 h-5 bg-blue-200 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-700">2</div>
+                    <div className="w-12 h-12 bg-blue-500 text-white rounded-full flex items-center justify-center text-xl shadow-sm">🔗</div>
+                    <span className="text-xs font-bold text-blue-800">Resource Link</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-amber-600 uppercase mb-1 block">New Study Note</label>
+                    <textarea 
+                      autoFocus
+                      value={noteInput}
+                      onChange={(e) => setNoteInput(e.target.value)}
+                      placeholder="Type a reminder or key fact..."
+                      className="w-full h-24 p-3 bg-amber-50/50 border-2 border-amber-100 rounded-xl outline-none focus:border-amber-400 text-sm italic font-medium"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setAttachmentMode('menu')}
+                      className="flex-1 py-3 rounded-xl font-bold text-gray-500 text-sm"
+                    >
+                      Back
+                    </button>
+                    <button 
+                      onClick={handleSendNote}
+                      disabled={!noteInput.trim()}
+                      className="flex-[2] bg-amber-400 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50"
+                    >
+                      Send Study Note
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-50 p-3 text-[10px] text-gray-400 text-center font-medium">
+              Reply with number to select. Shortcut: *5#
+            </div>
           </div>
         </div>
       )}
 
-      {/* Input Area (Only in Chat) */}
       {view === 'chat' && (
         <div className="absolute bottom-0 left-0 right-0 p-3 bg-gray-50/90 backdrop-blur-sm border-t border-gray-200 z-10">
-          <form 
-            onSubmit={(e) => { e.preventDefault(); handleUssdInput(input); }}
-            className="flex items-center gap-2"
-          >
+          <form onSubmit={(e) => { e.preventDefault(); handleUssdInput(input); }} className="flex items-center gap-2">
             <div className="flex-1 bg-white rounded-full px-3 py-2 shadow-inner border border-gray-200 flex items-center gap-1.5">
-              <button 
-                type="button" 
-                onClick={toggleListening}
-                className={`p-1.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse shadow-md' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}
-                title={isListening ? "Listening..." : "Voice Input"}
-              >
+              <button type="button" onClick={toggleListening} className={`p-1.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               </button>
-
+              
               <button 
                 type="button" 
-                onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
-                className={`p-1.5 rounded-full transition-all ${isAttachmentMenuOpen ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}
-                title="Attach Resource"
+                onClick={() => setIsAttachmentMenuOpen(true)}
+                className="p-1.5 rounded-full text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-all"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 -rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
               </button>
-              
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onFocus={() => setIsAttachmentMenuOpen(false)}
-                placeholder={isListening ? "Listening..." : "Type message or *123#..."}
-                className="flex-1 outline-none text-sm py-1 bg-transparent"
-              />
+
+              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type message or *123#..."} className="flex-1 outline-none text-sm py-1 bg-transparent" />
             </div>
-            
-            <button
-              type="submit"
-              disabled={!input.trim() || isThinking}
-              className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${
-                !input.trim() || isThinking ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
+            <button type="submit" disabled={!input.trim() || isThinking} className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${!input.trim() || isThinking ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
             </button>
           </form>
         </div>

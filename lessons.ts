@@ -36,5 +36,26 @@ export const LESSON_DATA: Record<string, Record<number, LessonContent>> = {
     3: { title: "Saving Money", theory: "Saving is keeping money for the future instead of spending it now.", question: "If you save $1 every day, how much do you have after a week?" },
     4: { title: "Budgeting", theory: "A budget is a plan for how to spend and save your money.", question: "Why is it important to have a plan for your money?" },
     5: { title: "Earning Money", theory: "People earn money by working or providing a service to others.", question: "What is the money you receive for working called?" }
+  },
+  history: {
+    1: { title: "Ancient Egypt", theory: "Ancient Egypt was one of history's first great civilizations, known for the Nile River and massive pyramids.", question: "What giant stone structures did Pharaohs build as tombs?" },
+    2: { title: "The Roman Empire", theory: "The Romans built a vast empire with advanced roads, laws, and aqueducts across Europe and Africa.", question: "What was the famous arena in Rome called?" },
+    3: { title: "The Middle Ages", theory: "This period saw the rise of knights, castles, and kings after the fall of Rome.", question: "What did knights wear for protection?" },
+    4: { title: "Industrial Revolution", theory: "This era changed the world from farming to using machines and factories.", question: "What was a major invention during this time (often used for trains)?" },
+    5: { title: "The Renaissance", theory: "A time of 'rebirth' in art, science, and learning across Europe.", question: "Who painted the Mona Lisa?" }
+  },
+  geography: {
+    1: { title: "The Seven Continents", theory: "Earth's land is divided into 7 large areas: Africa, Antarctica, Asia, Australia, Europe, North America, and South America.", question: "Which continent are the pyramids located in?" },
+    2: { title: "Oceans of the World", theory: "Most of Earth is covered by saltwater oceans. The largest is the Pacific Ocean.", question: "How many major oceans are there on Earth?" },
+    3: { title: "Climate Zones", theory: "Different parts of Earth have different weather patterns: Tropical, Temperate, and Polar.", question: "Which zone is very cold all year round?" },
+    4: { title: "Mountains and Rivers", theory: "Mountains are high landforms, while rivers are flowing bodies of fresh water.", question: "What is the highest mountain in the world?" },
+    5: { title: "Maps and Globes", theory: "A map is a flat drawing of a place, while a globe is a 3D model of the Earth.", question: "What do we call the line that divides Earth into North and South?" }
+  },
+  art: {
+    1: { title: "Primary Colors", theory: "Red, Yellow, and Blue are the three base colors. You can mix them to make all other colors.", question: "What color do you get if you mix Red and Yellow?" },
+    2: { title: "Shapes and Forms", theory: "Shapes are 2D (circles, squares), while forms are 3D (spheres, cubes).", question: "Is a ball a shape or a form?" },
+    3: { title: "Famous Paintings", theory: "Artists like Van Gogh and Da Vinci used paint to express emotions and stories.", question: "Who painted 'The Starry Night'?" },
+    4: { title: "Sculpture", theory: "Sculpture is art that you can walk around. It can be made of clay, stone, or wood.", question: "Is a statue a 2D or 3D piece of art?" },
+    5: { title: "Texture in Art", theory: "Texture is how an object feels or looks like it feels (rough, smooth, soft).", question: "What word describes the texture of sandpaper?" }
   }
 };

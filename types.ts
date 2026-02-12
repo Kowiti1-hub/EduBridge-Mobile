@@ -2,7 +2,9 @@
 export enum MessageType {
   USER = 'user',
   BOT = 'bot',
-  SYSTEM = 'system'
+  SYSTEM = 'system',
+  NOTE = 'note',
+  LINK = 'link'
 }
 
 export interface Message {
@@ -14,6 +16,8 @@ export interface Message {
   metadata?: {
     lessonNum?: number;
     totalLessons?: number;
+    isComplete?: boolean;
+    url?: string;
   };
 }
 

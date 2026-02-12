@@ -7,7 +7,10 @@ export const SUBJECTS: Subject[] = [
   { id: 'science', title: 'Science', icon: '🧪', description: 'Biology, Physics, and Chemistry basics.' },
   { id: 'english', title: 'English', icon: '📚', description: 'Grammar, Reading, and Writing skills.' },
   { id: 'health', title: 'Health', icon: '🏥', description: 'Hygiene, Nutrition, and First Aid.' },
-  { id: 'finance', title: 'Financial Literacy', icon: '💰', description: 'Savings, Budgeting, and Basic Economics.' }
+  { id: 'finance', title: 'Financial Literacy', icon: '💰', description: 'Savings, Budgeting, and Basic Economics.' },
+  { id: 'history', title: 'History', icon: '🏛️', description: 'Learn about past events and civilizations.' },
+  { id: 'geography', title: 'Geography', icon: '🌍', description: "Explore Earth's features and human populations." },
+  { id: 'art', title: 'Art', icon: '🎨', description: 'Discover painting, sculpture, and creative expression.' }
 ];
 
 export const USSD_MENU = `
@@ -18,6 +21,9 @@ Reply with number:
 3. English
 4. Health
 5. Financial Literacy
+6. History
+7. Geography
+8. Art
 0. Help
 `;
 
@@ -26,8 +32,9 @@ EDUBRIDGE HELP CENTER
 ---------------------
 COMMANDS:
 *123# - Main Menu
+*5# - Attachment Menu
 0 - This Help Guide
-1-5 - Select Subject
+1-8 - Select Subject
 "Next" - Continue lesson
 "Menu" - Return to subjects
 
