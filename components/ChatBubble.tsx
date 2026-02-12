@@ -4,6 +4,7 @@ import { Message, MessageType } from '../types';
 
 interface ChatBubbleProps {
   message: Message;
+  onShare?: (message: Message) => void;
 }
 
 const ProgressBar: React.FC<{ current: number; total: number; isComplete?: boolean }> = ({ current, total, isComplete }) => {
@@ -93,13 +94,14 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   );
 };
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare }) => {
   const isUser = message.type === MessageType.USER;
   const isSystem = message.type === MessageType.SYSTEM;
   const isNote = message.type === MessageType.NOTE;
   const isLink = message.type === MessageType.LINK;
   const isAudio = message.type === MessageType.AUDIO;
   const isImage = message.type === MessageType.IMAGE;
+  const isBot = message.type === MessageType.BOT;
 
   if (isSystem) {
     return (
@@ -240,8 +242,19 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
         `}
       >
         {contentNodes}
-        <div className="text-[10px] text-gray-400 mt-1 text-right flex items-center justify-end gap-1">
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <div className="text-[10px] text-gray-400 mt-2 text-right flex items-center justify-end gap-2">
+          {isBot && onShare && (
+            <button 
+              onClick={() => onShare(message)}
+              className="text-emerald-600 hover:text-emerald-800 font-bold flex items-center gap-1 bg-emerald-50 px-1.5 py-0.5 rounded transition-colors active:scale-90"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+              Share
+            </button>
+          )}
+          <span>{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           {isUser && (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />

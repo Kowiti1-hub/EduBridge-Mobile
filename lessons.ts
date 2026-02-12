@@ -38,11 +38,31 @@ export const LESSON_DATA: Record<string, Record<number, LessonContent>> = {
     5: { title: "Earning Money", theory: "People earn money by working or providing a service to others.", question: "What is the money you receive for working called?" }
   },
   history: {
-    1: { title: "Ancient Egypt", theory: "Ancient Egypt was one of history's first great civilizations, known for the Nile River and massive pyramids.", question: "What giant stone structures did Pharaohs build as tombs?" },
-    2: { title: "The Roman Empire", theory: "The Romans built a vast empire with advanced roads, laws, and aqueducts across Europe and Africa.", question: "What was the famous arena in Rome called?" },
-    3: { title: "The Middle Ages", theory: "This period saw the rise of knights, castles, and kings after the fall of Rome.", question: "What did knights wear for protection?" },
-    4: { title: "Industrial Revolution", theory: "This era changed the world from farming to using machines and factories.", question: "What was a major invention during this time (often used for trains)?" },
-    5: { title: "The Renaissance", theory: "A time of 'rebirth' in art, science, and learning across Europe.", question: "Who painted the Mona Lisa?" }
+    1: { 
+      title: "Ancient Egypt", 
+      theory: "Ancient Egypt was a powerful civilization along the Nile River. They are famous for building massive stone pyramids as tombs for their kings, called Pharaohs. They also created a unique writing system using pictures called Hieroglyphics.", 
+      question: "What were the kings of Ancient Egypt called?" 
+    },
+    2: { 
+      title: "The Roman Empire", 
+      theory: "The Romans built a vast empire that covered most of Europe and North Africa. They were incredible engineers, building strong roads and massive structures like the Colosseum. Their language, Latin, and their laws still influence the world today.", 
+      question: "Which language was spoken by the Romans?" 
+    },
+    3: { 
+      title: "The Middle Ages", 
+      theory: "This era followed the fall of Rome and is often called the age of knights and castles. Society was divided into ranks, with kings at the top and peasants at the bottom. It was a time of many wars but also the birth of great cathedrals.", 
+      question: "What were the large fortified stone buildings where kings and lords lived called?" 
+    },
+    4: { 
+      title: "Industrial Revolution", 
+      theory: "In the 1700s and 1800s, the world changed from farming to manufacturing. Steam power allowed machines in factories to make products much faster than by hand. This led to the growth of big cities and the invention of trains.", 
+      question: "True or False: The Industrial Revolution made it slower to produce goods." 
+    },
+    5: { 
+      title: "The Renaissance", 
+      theory: "The Renaissance was a 'rebirth' of art and science in Europe. It was a time of famous thinkers and artists like Leonardo da Vinci. People began to explore new ideas about the world, leading to many great discoveries.", 
+      question: "Which famous artist and inventor painted the Mona Lisa?" 
+    }
   },
   geography: {
     1: { title: "The Seven Continents", theory: "Earth's land is divided into 7 large areas: Africa, Antarctica, Asia, Australia, Europe, North America, and South America.", question: "Which continent are the pyramids located in?" },

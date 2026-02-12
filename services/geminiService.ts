@@ -53,6 +53,27 @@ export const generateEducationalResponse = async (
   }
 };
 
+export const summarizeTheory = async (theory: string) => {
+  const model = 'gemini-3-flash-preview';
+  const prompt = `Please summarize the following educational theory for a student in a very concise, easy-to-understand way. Use exactly one short sentence. Max 25 words: "${theory}"`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: "You are a hyper-concise educational summarizer for low-bandwidth users.",
+        temperature: 0.3,
+      },
+    });
+
+    return response.text || "Summary unavailable.";
+  } catch (error) {
+    console.error("Summarization Error:", error);
+    return "Could not summarize at this time.";
+  }
+};
+
 export const generateEducationalImage = async (prompt: string, subject: string | null) => {
   const model = 'gemini-2.5-flash-image';
   const enhancedPrompt = `A simple, clear educational diagram or icon for a student learning ${subject || 'general knowledge'}. Topic: ${prompt}. Style: Clean, high-contrast, educational graphic, white background, minimalist, easy to understand.`;

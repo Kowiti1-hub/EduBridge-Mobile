@@ -5,7 +5,7 @@ import { USSD_MENU, SUBJECTS, HELP_MESSAGE } from './constants';
 import { LESSON_DATA } from './lessons';
 import ChatBubble from './components/ChatBubble';
 import SubjectGrid from './components/SubjectGrid';
-import { generateEducationalResponse, generateEducationalImage } from './services/geminiService';
+import { generateEducationalResponse, generateEducationalImage, summarizeTheory } from './services/geminiService';
 
 declare global {
   interface Window {
@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [sharingMessage, setSharingMessage] = useState<Message | null>(null);
   
   // Audio Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -214,6 +215,48 @@ const App: React.FC = () => {
       playErrorSound();
       speakFeedback("Image generation failed.");
     }
+  };
+
+  const handleSummarize = async () => {
+    if (!currentSubject || isThinking) return;
+    const theory = LESSON_DATA[currentSubject.id][currentLesson]?.theory;
+    if (!theory) return;
+
+    setIsThinking(true);
+    speakFeedback("Summarizing lesson theory...");
+    const summary = await summarizeTheory(theory);
+    setIsThinking(false);
+    
+    addMessage(`Summarize Lesson ${currentLesson}`, MessageType.USER);
+    addMessage(`📝 *Bite-sized Recap:*\n${summary}`, MessageType.BOT);
+    playSuccessSound();
+  };
+
+  const handleShare = (message: Message) => {
+    setSharingMessage(message);
+    speakFeedback("Sharing options open.");
+  };
+
+  const closeShareModal = () => {
+    setSharingMessage(null);
+  };
+
+  const shareViaSms = () => {
+    if (!sharingMessage) return;
+    const body = `EduBridge Lesson: ${sharingMessage.content.slice(0, 100)}... Learn more at edubridge.org`;
+    window.location.href = `sms:?body=${encodeURIComponent(body)}`;
+    closeShareModal();
+    playSuccessSound();
+  };
+
+  const shareViaLink = () => {
+    if (!sharingMessage || !currentSubject) return;
+    const link = `https://edubridge.org/share/${currentSubject.id}/L${currentLesson}`;
+    navigator.clipboard.writeText(link).then(() => {
+      alert("Low-bandwidth link copied to clipboard!");
+      closeShareModal();
+      playSuccessSound();
+    });
   };
 
   const addMessage = (content: string, type: MessageType, isUssd = false, metadata?: any) => {
@@ -500,6 +543,17 @@ const App: React.FC = () => {
                  style={{ width: `${(currentLesson/TOTAL_LESSONS) * 100}%` }}
                />
             </div>
+            {/* SUMMARIZE LESSON BUTTON */}
+            {!isCourseCompleted && (
+              <button 
+                onClick={handleSummarize}
+                disabled={isThinking}
+                className="mt-1 px-3 py-1 bg-emerald-500 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-600 active:scale-95 transition-all flex items-center gap-1 disabled:opacity-50 shadow-sm"
+              >
+                <span>✨</span>
+                Summarize Lesson
+              </button>
+            )}
           </div>
 
           <button
@@ -542,11 +596,58 @@ const App: React.FC = () => {
         ) : (
           <div className="p-4 pb-32">
             {messages.length === 0 && <div className="text-center py-20"><div className="text-4xl mb-4">👋</div><p className="text-gray-500 text-sm">Send a message, dial a number, or use your voice!</p></div>}
-            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} />)}
+            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} onShare={handleShare} />)}
             {isThinking && <div className="flex justify-start mb-3"><div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-1"><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div></div></div>}
           </div>
         )}
       </main>
+
+      {/* Sharing Modal */}
+      {sharingMessage && (
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-gray-800 leading-none">Share Content</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-1">Low-Bandwidth Options</p>
+              </div>
+              <button onClick={closeShareModal} className="text-gray-400 p-1 hover:text-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <button 
+                onClick={shareViaSms}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-all active:scale-[0.98]"
+              >
+                <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center text-xl shadow-sm">💬</div>
+                <div className="text-left">
+                  <span className="block font-bold text-gray-800">Share via SMS</span>
+                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-tighter">No data required</span>
+                </div>
+              </button>
+
+              <button 
+                onClick={shareViaLink}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-all active:scale-[0.98]"
+              >
+                <div className="w-12 h-12 bg-blue-500 text-white rounded-2xl flex items-center justify-center text-xl shadow-sm">🔗</div>
+                <div className="text-left">
+                  <span className="block font-bold text-gray-800">Bite-sized Link</span>
+                  <span className="text-[10px] text-blue-700 font-bold uppercase tracking-tighter">Ultra-low 2KB load</span>
+                </div>
+              </button>
+            </div>
+
+            <div className="bg-gray-50 p-4 text-[10px] text-gray-400 text-center font-medium leading-tight">
+              EduBridge sharing is optimized for the local network infrastructure.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hidden File Input for Images */}
       <input 
