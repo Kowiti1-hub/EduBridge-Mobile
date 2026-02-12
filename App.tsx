@@ -23,8 +23,10 @@ const App: React.FC = () => {
   const [input, setInput] = useState('');
   const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
   const [currentLesson, setCurrentLesson] = useState(1);
+  const [isCourseCompleted, setIsCourseCompleted] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -97,8 +99,6 @@ const App: React.FC = () => {
       const lesson = subjectContent[lessonNum];
       const formattedContent = `📖 *${lesson.title}*\n\n${lesson.theory}\n\n❓ *Question:* ${lesson.question}`;
       addMessage(formattedContent, MessageType.BOT);
-    } else {
-      addMessage("You've completed all lessons for this subject! Great job. Type 'Menu' to choose another.", MessageType.BOT);
     }
   };
 
@@ -118,6 +118,7 @@ const App: React.FC = () => {
   const selectSubject = (subject: Subject) => {
     setCurrentSubject(subject);
     setCurrentLesson(1); // Reset lesson progress for new subject
+    setIsCourseCompleted(false); // Reset completion status
     setView('chat');
     addMessage(`Started: ${subject.title}`, MessageType.SYSTEM);
     addMessage(`Hello! Let's learn ${subject.title}.`, MessageType.BOT);
@@ -132,6 +133,26 @@ const App: React.FC = () => {
     addMessage(USSD_MENU, MessageType.BOT, true);
   };
 
+  const handleAttachment = (type: 'summary' | 'link') => {
+    setIsAttachmentMenuOpen(false);
+    if (!currentSubject) {
+      addMessage("Please select a subject first to share resources.", MessageType.BOT);
+      return;
+    }
+
+    const currentLessonData = LESSON_DATA[currentSubject.id]?.[currentLesson];
+
+    if (type === 'summary') {
+      addMessage("📎 Requesting Lesson Summary...", MessageType.USER);
+      const summary = `📝 *SUMMARY: ${currentLessonData?.title || currentSubject.title}*\n\nKey Concept: ${currentLessonData?.theory || 'Foundational principles of ' + currentSubject.title}.\n\nKeep this for your records! (Size: 0.4KB)`;
+      setTimeout(() => addMessage(summary, MessageType.BOT), 500);
+    } else {
+      addMessage("📎 Requesting External Resource...", MessageType.USER);
+      const link = `🌐 *OFFLINE RESOURCE LINK*\n\nYou can access the full ${currentSubject.title} library via our SMS-link service:\n\nhttp://edu-bridge.org/ref/${currentSubject.id}_l${currentLesson}\n\n(Standard SMS rates may apply)`;
+      setTimeout(() => addMessage(link, MessageType.BOT), 500);
+    }
+  };
+
   const handleUssdInput = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -140,15 +161,18 @@ const App: React.FC = () => {
 
     // Handle lesson progression
     if (trimmed.toLowerCase() === 'next') {
+      if (isCourseCompleted) return; // Prevent extra clicks
+
       const nextLesson = currentLesson + 1;
       if (nextLesson <= TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
         setCurrentLesson(nextLesson);
         deliverLesson(currentSubject.id, nextLesson);
         return;
-      } else if (nextLesson > TOTAL_LESSONS) {
+      } else if (nextLesson > TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
-        addMessage("Congratulations! You've reached the end of this course. Type 'Menu' to go back home.", MessageType.BOT);
+        setIsCourseCompleted(true);
+        addMessage(`🎓 *Congratulations!*\n\nYou have successfully completed the ${currentSubject.title} course. Type 'Menu' to choose another subject.`, MessageType.BOT);
         return;
       }
     }
@@ -287,17 +311,64 @@ const App: React.FC = () => {
         )}
       </main>
 
+      {/* Attachment Menu Overlay */}
+      {isAttachmentMenuOpen && (
+        <div className="absolute bottom-[72px] left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-2 overflow-hidden">
+            <button 
+              onClick={() => handleAttachment('summary')}
+              className="w-full flex items-center gap-4 p-4 hover:bg-emerald-50 rounded-xl transition-colors text-left"
+            >
+              <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <span className="block font-bold text-gray-800">Lesson Summary</span>
+                <span className="text-[10px] text-gray-500">Compact text digest (No Data Cost)</span>
+              </div>
+            </button>
+            <button 
+              onClick={() => handleAttachment('link')}
+              className="w-full flex items-center gap-4 p-4 hover:bg-emerald-50 rounded-xl transition-colors text-left"
+            >
+              <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+              </div>
+              <div>
+                <span className="block font-bold text-gray-800">Resource Link</span>
+                <span className="text-[10px] text-gray-500">External SMS/Text Reference</span>
+              </div>
+            </button>
+            <button 
+              onClick={() => setIsAttachmentMenuOpen(false)}
+              className="w-full text-center py-2 text-xs text-gray-400 font-medium border-t border-gray-100 mt-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Persistent "Next Lesson" Button & Progress Indicator */}
       {view === 'chat' && currentSubject && (
         <div className="absolute bottom-[72px] left-0 right-0 flex flex-col items-center pointer-events-none z-10">
           <button
             onClick={() => handleUssdInput('Next')}
-            className="pointer-events-auto bg-white/95 backdrop-blur-md border border-emerald-200 text-emerald-700 px-4 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-emerald-50 active:scale-95 transition-all flex items-center gap-2"
+            disabled={isCourseCompleted}
+            className={`pointer-events-auto px-4 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border ${
+              isCourseCompleted 
+                ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
+                : 'bg-white/95 backdrop-blur-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 active:scale-95'
+            }`}
           >
-            Next Lesson <span>➡️</span>
+            {isCourseCompleted ? 'Course Finished' : 'Next Lesson'} <span>{isCourseCompleted ? '🎉' : '➡️'}</span>
           </button>
           <div className="mt-1 bg-black/30 backdrop-blur-sm px-2.5 py-0.5 rounded shadow-sm text-[9px] text-white font-bold uppercase tracking-wider">
-            Lesson {currentLesson} of {TOTAL_LESSONS}
+            {isCourseCompleted ? 'COMPLETED' : `Lesson ${currentLesson} of ${TOTAL_LESSONS}`}
           </div>
         </div>
       )}
@@ -309,7 +380,7 @@ const App: React.FC = () => {
             onSubmit={(e) => { e.preventDefault(); handleUssdInput(input); }}
             className="flex items-center gap-2"
           >
-            <div className="flex-1 bg-white rounded-full px-4 py-2 shadow-inner border border-gray-200 flex items-center gap-2">
+            <div className="flex-1 bg-white rounded-full px-3 py-2 shadow-inner border border-gray-200 flex items-center gap-1.5">
               <button 
                 type="button" 
                 onClick={toggleListening}
@@ -320,20 +391,26 @@ const App: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               </button>
+
+              <button 
+                type="button" 
+                onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+                className={`p-1.5 rounded-full transition-all ${isAttachmentMenuOpen ? 'bg-emerald-500 text-white shadow-md' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}
+                title="Attach Resource"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 -rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              </button>
               
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onFocus={() => setIsAttachmentMenuOpen(false)}
                 placeholder={isListening ? "Listening..." : "Type message or *123#..."}
                 className="flex-1 outline-none text-sm py-1 bg-transparent"
               />
-              
-              <button type="button" className="text-gray-300 p-1 hover:text-emerald-500 transition-colors hidden sm:block">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-              </button>
             </div>
             
             <button

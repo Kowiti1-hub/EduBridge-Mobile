@@ -14,11 +14,15 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect }) => {
         <button
           key={subject.id}
           onClick={() => onSelect(subject)}
-          className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center hover:bg-gray-50 transition-colors"
+          className="bg-white p-4 rounded-2xl shadow-sm border border-emerald-50 flex flex-col items-center text-center hover:shadow-md hover:border-emerald-200 transition-all active:scale-95 group"
         >
-          <span className="text-4xl mb-2">{subject.icon}</span>
-          <h3 className="font-bold text-gray-800 text-sm">{subject.title}</h3>
-          <p className="text-[10px] text-gray-500 mt-1 leading-tight">{subject.description}</p>
+          <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center text-3xl mb-3 group-hover:scale-110 transition-transform">
+            {subject.icon}
+          </div>
+          <h3 className="font-bold text-gray-800 text-sm mb-1">{subject.title}</h3>
+          <p className="text-[10px] text-gray-400 font-medium leading-tight line-clamp-2 px-1">
+            {subject.description}
+          </p>
         </button>
       ))}
     </div>
