@@ -33,7 +33,7 @@ EDUBRIDGE HELP CENTER
 COMMANDS:
 *123# - Main Menu
 *5# - Attachment Menu
-0 - This Help Guide
+0 or *0# - This Help Guide
 1-8 - Select Subject
 "Next" - Continue lesson
 "Menu" - Return to subjects

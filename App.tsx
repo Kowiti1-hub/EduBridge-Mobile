@@ -26,8 +26,9 @@ const App: React.FC = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
-  const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note' | 'audio' | 'image' | 'generate_image'>('menu');
+  const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note' | 'audio' | 'image' | 'generate_image' | 'link'>('menu');
   const [noteInput, setNoteInput] = useState('');
+  const [linkInput, setLinkInput] = useState('');
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -300,10 +301,12 @@ const App: React.FC = () => {
   };
 
   const handleSendLink = () => {
-    if (!currentSubject) return;
-    const url = `https://edubridge.org/ref/${currentSubject.id}/L${currentLesson}`;
-    addMessage(`Found a helpful resource for our ${currentSubject.title} lesson!`, MessageType.LINK, false, { url });
-    addMessage("This resource link has been shared successfully! 🔗", MessageType.BOT);
+    if (!linkInput.trim()) return;
+    const url = linkInput.trim();
+    addMessage(`Check out this educational resource!`, MessageType.LINK, false, { url });
+    addMessage("Resource link has been pinned to your history! 🔗", MessageType.BOT);
+    setLinkInput('');
+    setAttachmentMode('menu');
     setIsAttachmentMenuOpen(false);
     speakFeedback("Resource link sent.");
   };
@@ -343,7 +346,8 @@ const App: React.FC = () => {
       }
       if (trimmed === '2') {
         addMessage("2", MessageType.USER, true);
-        handleSendLink();
+        setAttachmentMode('link');
+        speakFeedback("Send resource link mode.");
         return;
       }
       if (trimmed === '3') {
@@ -424,6 +428,14 @@ const App: React.FC = () => {
       return;
     }
 
+    // Help center shortcut (0 or *0#)
+    if (trimmed === '0' || trimmed === '*0#') {
+      addMessage(trimmed, MessageType.USER, true);
+      addMessage(HELP_MESSAGE, MessageType.BOT, true);
+      speakFeedback("Help center opened.");
+      return;
+    }
+
     if (trimmed.startsWith('*') && trimmed.endsWith('#')) {
       const parts = trimmed.slice(1, -1).split('*');
       if (parts[0] === '123') {
@@ -444,13 +456,6 @@ const App: React.FC = () => {
       addMessage("Invalid service code. Please try *123# or *5#.", MessageType.BOT);
       playErrorSound();
       speakFeedback("Invalid service code.");
-      return;
-    }
-
-    if (trimmed === '0') {
-      addMessage('0', MessageType.USER, true);
-      addMessage(HELP_MESSAGE, MessageType.BOT, true);
-      speakFeedback("Help center opened.");
       return;
     }
 
@@ -683,7 +688,7 @@ const App: React.FC = () => {
                     <span className="text-[10px] font-bold text-amber-800">Text Note</span>
                   </button>
                   <button 
-                    onClick={handleSendLink}
+                    onClick={() => setAttachmentMode('link')}
                     className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-blue-50 bg-blue-50 hover:border-blue-200 transition-all active:scale-95 group relative"
                   >
                     <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-blue-200 rounded-full flex items-center justify-center text-[8px] font-bold text-blue-700">2</div>
@@ -735,6 +740,30 @@ const App: React.FC = () => {
                       className="flex-[2] bg-amber-400 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50"
                     >
                       Send Study Note
+                    </button>
+                  </div>
+                </div>
+              ) : attachmentMode === 'link' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold text-blue-600 uppercase mb-1 block">Send Resource Link</label>
+                    <input 
+                      type="url"
+                      autoFocus
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      placeholder="https://example.com/resource"
+                      className="w-full p-3 bg-blue-50/50 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-400 text-sm font-medium"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setAttachmentMode('menu')} className="flex-1 py-3 rounded-xl font-bold text-gray-500 text-sm">Back</button>
+                    <button 
+                      onClick={handleSendLink}
+                      disabled={!linkInput.trim()}
+                      className="flex-[2] bg-blue-500 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50"
+                    >
+                      Send Resource
                     </button>
                   </div>
                 </div>
