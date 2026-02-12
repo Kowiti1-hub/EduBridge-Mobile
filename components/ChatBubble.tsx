@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { Message, MessageType } from '../types';
 
 interface ChatBubbleProps {
@@ -18,11 +18,88 @@ const ProgressBar: React.FC<{ current: number; total: number; isComplete?: boole
   );
 };
 
+const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, duration }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const onTimeUpdate = () => {
+    if (audioRef.current) {
+      const current = audioRef.current.currentTime;
+      setProgress((current / duration) * 100);
+    }
+  };
+
+  const onEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+  };
+
+  return (
+    <div className="flex flex-col gap-2 min-w-[200px]">
+      <div className="flex items-center gap-3">
+        <button 
+          onClick={togglePlay}
+          className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform"
+        >
+          {isPlaying ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          )}
+        </button>
+        
+        <div className="flex-1 flex flex-col gap-1">
+          <div className="relative h-1 bg-emerald-100 rounded-full overflow-hidden">
+            <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="flex justify-between items-center px-0.5">
+            <span className="text-[10px] font-bold text-emerald-800">
+              {isPlaying ? 'Playing...' : 'Voice Note'}
+            </span>
+            <span className="text-[10px] font-mono text-gray-500">
+              0:{duration.toString().padStart(2, '0')}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex justify-between items-center border-t border-emerald-50 pt-1 mt-1">
+        <div className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+          <span className="text-[8px] font-bold text-emerald-600 uppercase">Compressed (8KB)</span>
+        </div>
+        <span className="text-[8px] text-gray-300">EduBridge Voice Network</span>
+      </div>
+
+      <audio 
+        ref={audioRef} 
+        src={data} 
+        onTimeUpdate={onTimeUpdate} 
+        onEnded={onEnded}
+        hidden
+      />
+    </div>
+  );
+};
+
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const isUser = message.type === MessageType.USER;
   const isSystem = message.type === MessageType.SYSTEM;
   const isNote = message.type === MessageType.NOTE;
   const isLink = message.type === MessageType.LINK;
+  const isAudio = message.type === MessageType.AUDIO;
+  const isImage = message.type === MessageType.IMAGE;
 
   if (isSystem) {
     return (
@@ -74,6 +151,52 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
           <div className="px-3 pb-2 text-[10px] text-gray-400 flex justify-between items-center">
             <span className="text-[8px] font-bold text-emerald-600">Low-Data Optimized</span>
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle Audio Note style
+  if (isAudio && message.metadata?.audioData) {
+    return (
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+        <div className="max-w-[85%] bg-white p-3 rounded-2xl rounded-tr-none shadow-sm border border-emerald-50">
+          <VoicePlayer data={message.metadata.audioData} duration={message.metadata.duration || 0} />
+          <div className="text-[10px] text-gray-400 mt-1 text-right flex items-center justify-end gap-1">
+            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle Image Note style
+  if (isImage && message.metadata?.imageData) {
+    return (
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+        <div className="max-w-[85%] bg-white p-2 rounded-2xl rounded-tr-none shadow-sm border border-emerald-50">
+          <div className="relative group">
+            <img 
+              src={message.metadata.imageData} 
+              alt="Attachment" 
+              className="w-full rounded-xl object-cover max-h-60" 
+              loading="lazy"
+            />
+            <div className="absolute top-2 left-2 bg-emerald-500/80 backdrop-blur-sm text-[8px] text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-tighter">
+              Low-Res (15KB)
+            </div>
+          </div>
+          <div className="text-[10px] text-gray-400 mt-1.5 text-right flex items-center justify-end gap-1 px-1">
+            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {isUser && (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            )}
           </div>
         </div>
       </div>

@@ -42,7 +42,7 @@ HOW TO USE:
 1. Select a subject by number.
 2. Ask any question in chat.
 3. Use voice button for audio.
-4. Replies are short to save data.
+4. "Attachment Menu" has Text, Links, Voice, and Images.
 
 EduBridge works on low-signal 2G/3G networks.
 `;

@@ -4,7 +4,9 @@ export enum MessageType {
   BOT = 'bot',
   SYSTEM = 'system',
   NOTE = 'note',
-  LINK = 'link'
+  LINK = 'link',
+  AUDIO = 'audio',
+  IMAGE = 'image'
 }
 
 export interface Message {
@@ -18,6 +20,9 @@ export interface Message {
     totalLessons?: number;
     isComplete?: boolean;
     url?: string;
+    audioData?: string; // Base64 encoded audio
+    imageData?: string; // Base64 encoded image
+    duration?: number;  // Seconds
   };
 }
 

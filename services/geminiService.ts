@@ -52,3 +52,30 @@ export const generateEducationalResponse = async (
     return "Connection error. Please check your data signal and try again.";
   }
 };
+
+export const generateEducationalImage = async (prompt: string, subject: string | null) => {
+  const model = 'gemini-2.5-flash-image';
+  const enhancedPrompt = `A simple, clear educational diagram or icon for a student learning ${subject || 'general knowledge'}. Topic: ${prompt}. Style: Clean, high-contrast, educational graphic, white background, minimalist, easy to understand.`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: { parts: [{ text: enhancedPrompt }] },
+      config: {
+        imageConfig: {
+          aspectRatio: "1:1"
+        }
+      }
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Image Generation Error:", error);
+    return null;
+  }
+};
