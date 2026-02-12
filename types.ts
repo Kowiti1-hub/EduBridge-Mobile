@@ -20,6 +20,12 @@ export interface Subject {
   description: string;
 }
 
+export interface LessonContent {
+  title: string;
+  theory: string;
+  question: string;
+}
+
 export interface LearningState {
   currentSubject: string | null;
   history: Message[];

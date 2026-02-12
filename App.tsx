@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType, Subject } from './types';
+import { Message, MessageType, Subject, LessonContent } from './types';
 import { USSD_MENU, SUBJECTS, HELP_MESSAGE } from './constants';
+import { LESSON_DATA } from './lessons';
 import ChatBubble from './components/ChatBubble';
 import SubjectGrid from './components/SubjectGrid';
 import { generateEducationalResponse } from './services/geminiService';
@@ -14,11 +15,14 @@ declare global {
   }
 }
 
+const TOTAL_LESSONS = 5;
+
 const App: React.FC = () => {
   const [view, setView] = useState<'home' | 'chat'>('home');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
+  const [currentLesson, setCurrentLesson] = useState(1);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,6 +91,17 @@ const App: React.FC = () => {
     setMessages(prev => [...prev, newMessage]);
   };
 
+  const deliverLesson = (subjectId: string, lessonNum: number) => {
+    const subjectContent = LESSON_DATA[subjectId];
+    if (subjectContent && subjectContent[lessonNum]) {
+      const lesson = subjectContent[lessonNum];
+      const formattedContent = `📖 *${lesson.title}*\n\n${lesson.theory}\n\n❓ *Question:* ${lesson.question}`;
+      addMessage(formattedContent, MessageType.BOT);
+    } else {
+      addMessage("You've completed all lessons for this subject! Great job. Type 'Menu' to choose another.", MessageType.BOT);
+    }
+  };
+
   const handleSend = async (text: string) => {
     if (!text.trim()) return;
     
@@ -102,9 +117,13 @@ const App: React.FC = () => {
 
   const selectSubject = (subject: Subject) => {
     setCurrentSubject(subject);
+    setCurrentLesson(1); // Reset lesson progress for new subject
     setView('chat');
     addMessage(`Started: ${subject.title}`, MessageType.SYSTEM);
-    addMessage(`Hello! Let's learn ${subject.title}. What would you like to know first?`, MessageType.BOT);
+    addMessage(`Hello! Let's learn ${subject.title}.`, MessageType.BOT);
+    
+    // Deliver the first lesson immediately
+    deliverLesson(subject.id, 1);
   };
 
   const triggerUssd = () => {
@@ -118,6 +137,27 @@ const App: React.FC = () => {
     if (!trimmed) return;
 
     setInput('');
+
+    // Handle lesson progression
+    if (trimmed.toLowerCase() === 'next') {
+      const nextLesson = currentLesson + 1;
+      if (nextLesson <= TOTAL_LESSONS && currentSubject) {
+        addMessage('Next', MessageType.USER);
+        setCurrentLesson(nextLesson);
+        deliverLesson(currentSubject.id, nextLesson);
+        return;
+      } else if (nextLesson > TOTAL_LESSONS) {
+        addMessage('Next', MessageType.USER);
+        addMessage("Congratulations! You've reached the end of this course. Type 'Menu' to go back home.", MessageType.BOT);
+        return;
+      }
+    }
+
+    // Handle return to menu
+    if (trimmed.toLowerCase() === 'menu') {
+      setView('home');
+      return;
+    }
 
     // Handle direct USSD codes like *123*1#
     if (trimmed.startsWith('*') && trimmed.endsWith('#')) {
@@ -247,15 +287,18 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Persistent "Next Lesson" Button */}
-      {view === 'chat' && (
-        <div className="absolute bottom-[72px] left-0 right-0 flex justify-center pointer-events-none z-10">
+      {/* Persistent "Next Lesson" Button & Progress Indicator */}
+      {view === 'chat' && currentSubject && (
+        <div className="absolute bottom-[72px] left-0 right-0 flex flex-col items-center pointer-events-none z-10">
           <button
             onClick={() => handleUssdInput('Next')}
             className="pointer-events-auto bg-white/95 backdrop-blur-md border border-emerald-200 text-emerald-700 px-4 py-1.5 rounded-full text-xs font-bold shadow-lg hover:bg-emerald-50 active:scale-95 transition-all flex items-center gap-2"
           >
             Next Lesson <span>➡️</span>
           </button>
+          <div className="mt-1 bg-black/30 backdrop-blur-sm px-2.5 py-0.5 rounded shadow-sm text-[9px] text-white font-bold uppercase tracking-wider">
+            Lesson {currentLesson} of {TOTAL_LESSONS}
+          </div>
         </div>
       )}
 
@@ -300,4 +343,15 @@ const App: React.FC = () => {
                 !input.trim() || isThinking ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'
               }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default App;
