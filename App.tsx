@@ -82,13 +82,14 @@ const App: React.FC = () => {
     }
   };
 
-  const addMessage = (content: string, type: MessageType, isUssd = false) => {
+  const addMessage = (content: string, type: MessageType, isUssd = false, metadata?: { lessonNum?: number, totalLessons?: number }) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       content,
       type,
       timestamp: new Date(),
-      isUssd
+      isUssd,
+      metadata
     };
     setMessages(prev => [...prev, newMessage]);
   };
@@ -98,7 +99,7 @@ const App: React.FC = () => {
     if (subjectContent && subjectContent[lessonNum]) {
       const lesson = subjectContent[lessonNum];
       const formattedContent = `📖 *${lesson.title}*\n\n${lesson.theory}\n\n❓ *Question:* ${lesson.question}`;
-      addMessage(formattedContent, MessageType.BOT);
+      addMessage(formattedContent, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS });
     }
   };
 
@@ -174,6 +175,30 @@ const App: React.FC = () => {
         setIsCourseCompleted(true);
         addMessage(`🎓 *Congratulations!*\n\nYou have successfully completed the ${currentSubject.title} course. Type 'Menu' to choose another subject.`, MessageType.BOT);
         return;
+      }
+    }
+
+    // Handle lesson regression
+    if (trimmed.toLowerCase() === 'previous' || trimmed === '*99#') {
+      if (currentSubject) {
+        if (isCourseCompleted) {
+          addMessage('Previous', MessageType.USER);
+          setIsCourseCompleted(false);
+          setCurrentLesson(TOTAL_LESSONS);
+          deliverLesson(currentSubject.id, TOTAL_LESSONS);
+          return;
+        }
+
+        const prevLesson = currentLesson - 1;
+        if (prevLesson >= 1) {
+          addMessage('Previous', MessageType.USER);
+          setCurrentLesson(prevLesson);
+          deliverLesson(currentSubject.id, prevLesson);
+          return;
+        } else {
+          addMessage("You are already at the first lesson.", MessageType.BOT);
+          return;
+        }
       }
     }
 
@@ -288,7 +313,7 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="p-4 pb-24">
+          <div className="p-4 pb-32">
             {messages.length === 0 && (
               <div className="text-center py-20">
                 <div className="text-4xl mb-4">👋</div>
@@ -353,22 +378,37 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Persistent "Next Lesson" Button & Progress Indicator */}
+      {/* Persistent Navigation Controls & Progress Indicator */}
       {view === 'chat' && currentSubject && (
-        <div className="absolute bottom-[72px] left-0 right-0 flex flex-col items-center pointer-events-none z-10">
-          <button
-            onClick={() => handleUssdInput('Next')}
-            disabled={isCourseCompleted}
-            className={`pointer-events-auto px-4 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border ${
-              isCourseCompleted 
-                ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
-                : 'bg-white/95 backdrop-blur-md border-emerald-200 text-emerald-700 hover:bg-emerald-50 active:scale-95'
-            }`}
-          >
-            {isCourseCompleted ? 'Course Finished' : 'Next Lesson'} <span>{isCourseCompleted ? '🎉' : '➡️'}</span>
-          </button>
-          <div className="mt-1 bg-black/30 backdrop-blur-sm px-2.5 py-0.5 rounded shadow-sm text-[9px] text-white font-bold uppercase tracking-wider">
-            {isCourseCompleted ? 'COMPLETED' : `Lesson ${currentLesson} of ${TOTAL_LESSONS}`}
+        <div className="absolute bottom-[80px] left-0 right-0 flex flex-col items-center pointer-events-none z-10 gap-2">
+          <div className="flex flex-col gap-1.5 items-center">
+            <button
+              onClick={() => handleUssdInput('Next')}
+              disabled={isCourseCompleted}
+              className={`pointer-events-auto px-5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border w-40 justify-center ${
+                isCourseCompleted 
+                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
+                  : 'bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-600 active:scale-95'
+              }`}
+            >
+              {isCourseCompleted ? 'Course Finished' : 'Next Lesson'} <span>{isCourseCompleted ? '🎉' : '➡️'}</span>
+            </button>
+            
+            <button
+              onClick={() => handleUssdInput('Previous')}
+              disabled={currentLesson === 1 && !isCourseCompleted}
+              className={`pointer-events-auto px-5 py-1.5 rounded-full text-xs font-bold shadow-lg transition-all flex items-center gap-2 border w-40 justify-center ${
+                currentLesson === 1 && !isCourseCompleted
+                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-80' 
+                  : 'bg-white/95 backdrop-blur-md border-gray-200 text-gray-600 hover:bg-gray-50 active:scale-95'
+              }`}
+            >
+              <span>⬅️</span> Previous Lesson
+            </button>
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-md px-3 py-1 rounded-full shadow-sm text-[10px] text-white font-bold uppercase tracking-widest border border-white/10">
+            {isCourseCompleted ? '🎓 COMPLETED' : `Lesson ${currentLesson} of ${TOTAL_LESSONS}`}
           </div>
         </div>
       )}

@@ -11,6 +11,10 @@ export interface Message {
   content: string;
   timestamp: Date;
   isUssd?: boolean;
+  metadata?: {
+    lessonNum?: number;
+    totalLessons?: number;
+  };
 }
 
 export interface Subject {
