@@ -56,7 +56,7 @@ export const LESSON_DATA: Record<string, Record<number, LessonContent>> = {
     4: { 
       title: "Industrial Revolution", 
       theory: "In the 1700s and 1800s, the world changed from farming to manufacturing. Steam power allowed machines in factories to make products much faster than by hand. This led to the growth of big cities and the invention of trains.", 
-      question: "True or False: The Industrial Revolution made it slower to produce goods." 
+      question: "True or False: The Industrial Revolution made it faster to produce goods." 
     },
     5: { 
       title: "The Renaissance", 

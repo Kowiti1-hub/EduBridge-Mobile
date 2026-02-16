@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [linkInput, setLinkInput] = useState('');
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isOptimizingImage, setIsOptimizingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [sharingMessage, setSharingMessage] = useState<Message | null>(null);
   
@@ -178,13 +179,50 @@ const App: React.FC = () => {
     setAttachmentMode('menu');
   };
 
+  // Low-bandwidth optimization for images
+  const compressImage = (base64Str: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600; // Limit resolution for low-data
+        const MAX_HEIGHT = 600;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        // Using 0.5 quality for significant bandwidth savings
+        resolve(canvas.toDataURL('image/jpeg', 0.5));
+      };
+    });
+  };
+
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setIsOptimizingImage(true);
+      speakFeedback("Optimizing image for low bandwidth...");
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const base64Image = reader.result as string;
-        sendImageAttachment(base64Image);
+        const optimizedImage = await compressImage(base64Image);
+        sendImageAttachment(optimizedImage);
+        setIsOptimizingImage(false);
       };
       reader.readAsDataURL(file);
     }
@@ -192,9 +230,11 @@ const App: React.FC = () => {
 
   const sendImageAttachment = (imageData: string) => {
     addMessage("Educational Image", MessageType.IMAGE, false, { imageData });
-    addMessage("Thank you for sharing the image! It has been optimized for the EduBridge network. 🖼️", MessageType.BOT);
+    addMessage("Thank you for sharing the image! It has been optimized to save 80% data. 🖼️", MessageType.BOT);
     setIsAttachmentMenuOpen(false);
     setAttachmentMode('menu');
+    playSuccessSound();
+    speakFeedback("Image sent.");
   };
 
   const handleAiImageGeneration = async () => {
@@ -395,14 +435,16 @@ const App: React.FC = () => {
       }
     }
 
-    if (trimmed.toLowerCase() === 'next') {
+    const command = trimmed.toLowerCase();
+    if (command === 'next' || command === 'next lesson') {
       if (isCourseCompleted) return;
       const nextLesson = currentLesson + 1;
       if (nextLesson <= TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
         setCurrentLesson(nextLesson);
         deliverLesson(currentSubject.id, nextLesson);
-        speakFeedback("Next lesson.");
+        speakFeedback("Moving to the next lesson.");
+        playSuccessSound();
         return;
       } else if (nextLesson > TOTAL_LESSONS && currentSubject) {
         addMessage('Next', MessageType.USER);
@@ -415,7 +457,7 @@ const App: React.FC = () => {
       }
     }
 
-    if (trimmed.toLowerCase() === 'previous' || trimmed === '*99#') {
+    if (command === 'previous' || command === 'previous lesson' || trimmed === '*99#') {
       if (currentSubject) {
         if (isCourseCompleted) {
           addMessage('Previous', MessageType.USER);
@@ -423,7 +465,8 @@ const App: React.FC = () => {
           setShowConfetti(false);
           setCurrentLesson(TOTAL_LESSONS);
           deliverLesson(currentSubject.id, TOTAL_LESSONS);
-          speakFeedback("Returning to last lesson.");
+          speakFeedback("Returning to the previous lesson.");
+          playSuccessSound();
           return;
         }
         const prevLesson = currentLesson - 1;
@@ -431,19 +474,20 @@ const App: React.FC = () => {
           addMessage('Previous', MessageType.USER);
           setCurrentLesson(prevLesson);
           deliverLesson(currentSubject.id, prevLesson);
-          speakFeedback("Previous lesson.");
+          speakFeedback("Returning to the previous lesson.");
+          playSuccessSound();
           return;
         } else {
           addMessage("You are already at the first lesson.", MessageType.BOT);
-          speakFeedback("Already at the start.");
+          speakFeedback("You are already at the start of the course.");
           return;
         }
       }
     }
 
-    if (trimmed.toLowerCase() === 'menu') {
+    if (command === 'menu') {
       setView('home');
-      speakFeedback("Returning home.");
+      speakFeedback("Returning to the main menu.");
       return;
     }
 
@@ -451,7 +495,7 @@ const App: React.FC = () => {
     if (trimmed === '0' || trimmed === '*0#') {
       addMessage(trimmed, MessageType.USER, true);
       addMessage(HELP_MESSAGE, MessageType.BOT, true);
-      speakFeedback("Help center opened.");
+      speakFeedback("Opening help guide.");
       return;
     }
 
@@ -621,7 +665,18 @@ const App: React.FC = () => {
           <div className="p-4 pb-32">
             {messages.length === 0 && <div className="text-center py-20"><div className="text-4xl mb-4">👋</div><p className="text-gray-500 text-sm">Send a message, dial a number, or use your voice!</p></div>}
             {messages.map((msg) => <ChatBubble key={msg.id} message={msg} onShare={handleShare} />)}
-            {isThinking && <div className="flex justify-start mb-3"><div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-1"><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div><div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div></div></div>}
+            {(isThinking || isOptimizingImage) && (
+              <div className="flex justify-start mb-3">
+                <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
+                  <div className="flex gap-1">
+                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div>
+                  </div>
+                  {isOptimizingImage && <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Optimizing Image...</span>}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -872,8 +927,11 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-            <div className="bg-gray-50 p-3 text-[10px] text-gray-400 text-center font-medium">
-              Data Saving: {attachmentMode === 'audio' ? 'Simulated 8KB/sec compression' : attachmentMode === 'image' || attachmentMode === 'generate_image' ? 'Automatic resolution reduction' : 'Minimal payload size'}
+            <div className="bg-gray-50 p-3 text-[10px] text-gray-400 text-center font-medium leading-tight">
+              {isOptimizingImage 
+                ? "⚡ HIGH PRIORITY: Resizing and re-encoding for minimum data usage..." 
+                : `Data Saving: ${attachmentMode === 'audio' ? 'Simulated 8KB/sec compression' : attachmentMode === 'image' || attachmentMode === 'generate_image' ? 'Automatic resolution reduction' : 'Minimal payload size'}`
+              }
             </div>
           </div>
         </div>
@@ -901,14 +959,4 @@ const App: React.FC = () => {
 
               <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type message or *123#..."} className="flex-1 outline-none text-sm py-1 bg-transparent" />
             </div>
-            <button type="submit" disabled={!input.trim() || isThinking} className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${!input.trim() || isThinking ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}>
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-            </button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default App;
+            <button type="submit" disabled={!input.trim() || isThinking} className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${!
