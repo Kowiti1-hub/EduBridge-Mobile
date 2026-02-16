@@ -303,6 +303,15 @@ const App: React.FC = () => {
   };
 
   const triggerUssd = () => {
+    // If already in chat, *123# acts as a 'back to menu' command
+    if (view === 'chat') {
+      setView('home');
+      playSuccessSound();
+      speakFeedback("Returning home.");
+      return;
+    }
+    
+    // If at home, *123# opens the portal
     setView('chat');
     addMessage("*123#", MessageType.USER, true);
     addMessage(USSD_MENU, MessageType.BOT, true);

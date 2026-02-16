@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Message, MessageType } from '../types';
 
 interface ChatBubbleProps {
@@ -22,7 +22,22 @@ const ProgressBar: React.FC<{ current: number; total: number; isComplete?: boole
 const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, duration }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const speeds = [0.5, 1, 1.5, 2];
+
+  const cycleSpeed = () => {
+    const currentIndex = speeds.indexOf(playbackSpeed);
+    const nextIndex = (currentIndex + 1) % speeds.length;
+    setPlaybackSpeed(speeds[nextIndex]);
+  };
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -47,11 +62,11 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   };
 
   return (
-    <div className="flex flex-col gap-2 min-w-[200px]">
+    <div className="flex flex-col gap-2 min-w-[220px]">
       <div className="flex items-center gap-3">
         <button 
           onClick={togglePlay}
-          className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform"
+          className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform flex-shrink-0"
         >
           {isPlaying ? (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
@@ -60,7 +75,7 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
           )}
         </button>
         
-        <div className="flex-1 flex flex-col gap-1">
+        <div className="flex-1 flex flex-col gap-1 min-w-0">
           <div className="relative h-1 bg-emerald-100 rounded-full overflow-hidden">
             <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
           </div>
@@ -68,9 +83,17 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
             <span className="text-[10px] font-bold text-emerald-800">
               {isPlaying ? 'Playing...' : 'Voice Note'}
             </span>
-            <span className="text-[10px] font-mono text-gray-500">
-              0:{duration.toString().padStart(2, '0')}
-            </span>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={cycleSpeed}
+                className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 hover:bg-emerald-200 transition-colors active:scale-95"
+              >
+                {playbackSpeed}x
+              </button>
+              <span className="text-[10px] font-mono text-gray-500">
+                0:{duration.toString().padStart(2, '0')}
+              </span>
+            </div>
           </div>
         </div>
       </div>
