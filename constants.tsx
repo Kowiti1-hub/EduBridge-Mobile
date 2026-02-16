@@ -25,6 +25,21 @@ Reply with number:
 7. Geography
 8. Art
 0. Help
+
+---------------------
+USSD HELP CENTER
+---------------------
+COMMANDS:
+*123# - Main Menu
+*5# - Attachment Menu
+0 or *0# - Help Guide
+1-8 - Select Subject
+"Next" - Next lesson
+"Menu" - Exit course
+
+HOW TO USE:
+1. Reply with a number.
+2. Voice/Images in *5# menu.
 `;
 
 export const HELP_MESSAGE = `
