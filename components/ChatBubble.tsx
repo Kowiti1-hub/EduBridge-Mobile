@@ -22,6 +22,7 @@ const ProgressBar: React.FC<{ current: number; total: number; isComplete?: boole
 const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, duration }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -31,6 +32,12 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
     const currentIndex = speeds.indexOf(playbackSpeed);
     const nextIndex = (currentIndex + 1) % speeds.length;
     setPlaybackSpeed(speeds[nextIndex]);
+  };
+
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   useEffect(() => {
@@ -52,6 +59,7 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   const onTimeUpdate = () => {
     if (audioRef.current) {
       const current = audioRef.current.currentTime;
+      setCurrentTime(current);
       setProgress((current / duration) * 100);
     }
   };
@@ -59,10 +67,21 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   const onEnded = () => {
     setIsPlaying(false);
     setProgress(0);
+    setCurrentTime(0);
+  };
+
+  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    if (audioRef.current) {
+      const newTime = (value / 100) * duration;
+      audioRef.current.currentTime = newTime;
+      setProgress(value);
+      setCurrentTime(newTime);
+    }
   };
 
   return (
-    <div className="flex flex-col gap-2 min-w-[220px]">
+    <div className="flex flex-col gap-2 min-w-[240px]">
       <div className="flex items-center gap-3">
         <button 
           onClick={togglePlay}
@@ -75,10 +94,19 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
           )}
         </button>
         
-        <div className="flex-1 flex flex-col gap-1 min-w-0">
-          <div className="relative h-1 bg-emerald-100 rounded-full overflow-hidden">
-            <div className="absolute left-0 top-0 h-full bg-emerald-500 transition-all" style={{ width: `${progress}%` }} />
-          </div>
+        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+          <input 
+            type="range"
+            min="0"
+            max="100"
+            step="0.1"
+            value={progress}
+            onChange={handleScrub}
+            className="w-full h-1.5 bg-emerald-100 rounded-full appearance-none cursor-pointer accent-emerald-500"
+            style={{
+              background: `linear-gradient(to right, #10b981 ${progress}%, #d1fae5 ${progress}%)`
+            }}
+          />
           <div className="flex justify-between items-center px-0.5">
             <span className="text-[10px] font-bold text-emerald-800">
               {isPlaying ? 'Playing...' : 'Voice Note'}
@@ -91,7 +119,7 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
                 {playbackSpeed}x
               </button>
               <span className="text-[10px] font-mono text-gray-500">
-                0:{duration.toString().padStart(2, '0')}
+                {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             </div>
           </div>
