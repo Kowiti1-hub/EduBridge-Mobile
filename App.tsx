@@ -1,22 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType, Subject } from './types';
+import { Message, MessageType, Subject, EducationLevel } from './types';
 import { USSD_MENU, SUBJECTS, HELP_MESSAGE } from './constants';
 import { LESSON_DATA } from './lessons';
 import ChatBubble from './components/ChatBubble';
 import SubjectGrid from './components/SubjectGrid';
-import { generateEducationalResponse, generateEducationalImage, summarizeTheory } from './services/geminiService';
+import { generateEducationalResponse, generateEducationalImage, summarizeTheory, generateEducationalVideo, getVideosOperation } from './services/geminiService';
 
 declare global {
   interface Window {
     SpeechRecognition: any;
     webkitSpeechRecognition: any;
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
 
 const TOTAL_LESSONS = 5;
 
 const App: React.FC = () => {
-  const [view, setView] = useState<'home' | 'chat'>('home');
+  const [view, setView] = useState<'home' | 'chat' | 'setup'>('setup');
+  const [educationLevel, setEducationLevel] = useState<EducationLevel | null>(null);
+  const [yearOfStudy, setYearOfStudy] = useState<number>(1);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
@@ -27,12 +33,14 @@ const App: React.FC = () => {
   const [isSpeechSupported, setIsSpeechSupported] = useState(true);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
-  const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note' | 'audio' | 'image' | 'generate_image' | 'link'>('menu');
+  const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note' | 'audio' | 'image' | 'generate_image' | 'generate_video' | 'link'>('menu');
   const [imageQuality, setImageQuality] = useState<'low' | 'high'>('low');
   const [noteInput, setNoteInput] = useState('');
   const [linkInput, setLinkInput] = useState('');
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoPrompt, setVideoPrompt] = useState('');
   const [isOptimizingImage, setIsOptimizingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [sharingMessage, setSharingMessage] = useState<Message | null>(null);
@@ -120,10 +128,12 @@ const App: React.FC = () => {
     const savedState = localStorage.getItem('edubridge_state');
     if (savedState) {
       try {
-        const { subject, lesson, view: savedView } = JSON.parse(savedState);
+        const { subject, lesson, view: savedView, educationLevel: savedLevel, yearOfStudy: savedYear } = JSON.parse(savedState);
         if (subject) setCurrentSubject(subject);
         if (lesson) setCurrentLesson(lesson);
         if (savedView) setView(savedView);
+        if (savedLevel) setEducationLevel(savedLevel);
+        if (savedYear) setYearOfStudy(savedYear);
       } catch (e) { console.error("Failed to load state", e); }
     }
 
@@ -188,9 +198,11 @@ const App: React.FC = () => {
     localStorage.setItem('edubridge_state', JSON.stringify({
       subject: currentSubject,
       lesson: currentLesson,
+      educationLevel,
+      yearOfStudy,
       view
     }));
-  }, [currentSubject, currentLesson, view]);
+  }, [currentSubject, currentLesson, view, educationLevel, yearOfStudy]);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
@@ -315,6 +327,66 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAiVideoGeneration = async () => {
+    if (!videoPrompt.trim()) return;
+    if (isOffline) {
+      addMessage("AI Video generation requires an internet connection.", MessageType.BOT);
+      playErrorSound();
+      return;
+    }
+
+    // Check for API key
+    if (typeof window.aistudio !== 'undefined' && !(await window.aistudio.hasSelectedApiKey())) {
+      await window.aistudio.openSelectKey();
+      // After opening, we assume they selected or will retry.
+      // The platform handles the key injection.
+    }
+
+    setIsGeneratingVideo(true);
+    speakFeedback("Starting video generation. This may take a few minutes...");
+    addMessage(`Generating educational video for: ${videoPrompt}...`, MessageType.SYSTEM);
+
+    try {
+      let operation = await generateEducationalVideo(videoPrompt, currentSubject?.title || null);
+      
+      // Polling loop
+      let attempts = 0;
+      const maxAttempts = 60; // 10 minutes (10s intervals)
+      
+      while (!operation.done && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        operation = await getVideosOperation(operation);
+        attempts++;
+        
+        if (attempts % 3 === 0) {
+          speakFeedback("Still working on your video. Thank you for your patience.");
+        }
+      }
+
+      if (operation.done && operation.response?.generatedVideos?.[0]?.video?.uri) {
+        const videoUrl = operation.response.generatedVideos[0].video.uri;
+        addMessage(`Educational Video: ${videoPrompt}`, MessageType.VIDEO, false, { videoUrl });
+        addMessage(`Your educational video for "${videoPrompt}" is ready! 🎥`, MessageType.BOT);
+        playSuccessSound();
+      } else {
+        throw new Error("Video generation timed out or failed.");
+      }
+    } catch (error: any) {
+      console.error("Video Error:", error);
+      if (error.message?.includes("Requested entity was not found")) {
+        // Reset key if it failed due to key issues
+        if (typeof window.aistudio !== 'undefined') await window.aistudio.openSelectKey();
+      }
+      playErrorSound();
+      addMessage("Sorry, I couldn't generate that video. Please try again later.", MessageType.BOT);
+    } finally {
+      setIsGeneratingVideo(false);
+      setIsAttachmentMenuOpen(false);
+      setAttachmentMode('menu');
+      setVideoPrompt('');
+    }
+  };
+
   const handleSendLink = () => {
     if (!linkInput.trim()) return;
     addMessage("Educational Resource", MessageType.LINK, false, { url: linkInput.trim() });
@@ -434,6 +506,31 @@ const App: React.FC = () => {
     const response = await generateEducationalResponse(text, messages, currentSubject?.title || null);
     setIsThinking(false);
     addMessage(response, MessageType.BOT);
+  };
+
+  const handleDownloadSubject = (subject: Subject) => {
+    const lessons = LESSON_DATA[subject.id];
+    if (!lessons) return;
+
+    addMessage(`Downloading all lessons for ${subject.title}...`, MessageType.SYSTEM);
+    
+    Object.entries(lessons).forEach(([num, lesson]) => {
+      const lessonNum = parseInt(num);
+      const content = `${lesson.title}\n\n${lesson.theory}\n\nQuestion: ${lesson.question}`;
+      addMessage(content, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS, isDownloaded: true });
+    });
+
+    addMessage(`Successfully downloaded ${Object.keys(lessons).length} lessons for ${subject.title}. You can now view them offline! ✅`, MessageType.BOT);
+    playSuccessSound();
+  };
+
+  const handleDownloadMessage = (message: Message) => {
+    setMessages(prev => prev.map(m => 
+      m.id === message.id 
+        ? { ...m, metadata: { ...m.metadata, isDownloaded: true } } 
+        : m
+    ));
+    playSuccessSound();
   };
 
   const startRecording = async () => {
@@ -559,15 +656,27 @@ const App: React.FC = () => {
               <p className="text-xs text-gray-500 mb-4">You've saved 2.4MB of data today.</p>
               <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 font-medium italic text-[11px] text-emerald-900">"Education is the most powerful weapon which you can use to change the world."</div>
             </div>
-            <SubjectGrid onSelect={(s) => { 
-              const num = SUBJECTS.findIndex(x => x.id === s.id) + 1;
-              handleUssdInput(num.toString());
-            }} />
+            <SubjectGrid 
+              onSelect={(s) => { 
+                const num = SUBJECTS.findIndex(x => x.id === s.id) + 1;
+                handleUssdInput(num.toString());
+              }} 
+              onDownload={handleDownloadSubject}
+              isOffline={isOffline}
+            />
           </div>
         ) : (
           <div className="p-4 pb-32">
-            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} onShare={(m) => { setSharingMessage(m); playNavigationSound(); }} />)}
-            {(isThinking || isGeneratingImage) && (
+            {messages.map((msg) => (
+              <ChatBubble 
+                key={msg.id} 
+                message={msg} 
+                onShare={(m) => { setSharingMessage(m); playNavigationSound(); }} 
+                onDownload={handleDownloadMessage}
+                isOffline={isOffline}
+              />
+            ))}
+            {(isThinking || isGeneratingImage || isGeneratingVideo) && (
               <div className="flex flex-col gap-1 p-3 bg-white rounded-xl w-fit ml-2 shadow-sm animate-pulse border border-gray-100">
                 <div className="flex gap-1">
                   <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
@@ -575,6 +684,7 @@ const App: React.FC = () => {
                   <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
                 </div>
                 {isGeneratingImage && <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-tighter">AI Drawing...</span>}
+                {isGeneratingVideo && <span className="text-[10px] text-rose-600 font-bold uppercase tracking-tighter">AI Animating...</span>}
               </div>
             )}
           </div>
@@ -603,7 +713,8 @@ const App: React.FC = () => {
                   <button onClick={() => { setAttachmentMode('link'); playSuccessSound(); }} className="p-4 rounded-2xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-800 flex flex-col items-center gap-2"><span>🔗</span>Resource Link</button>
                   <button onClick={() => { setAttachmentMode('audio'); playSuccessSound(); }} className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-[10px] font-bold text-emerald-800 flex flex-col items-center gap-2"><span>🎙️</span>Voice Note</button>
                   <button onClick={() => { setAttachmentMode('image'); playSuccessSound(); }} className="p-4 rounded-2xl bg-purple-50 border border-purple-100 text-[10px] font-bold text-purple-800 flex flex-col items-center gap-2"><span>🖼️</span>Send Photo</button>
-                  <button onClick={() => { setAttachmentMode('generate_image'); playSuccessSound(); }} className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 text-[10px] font-bold text-indigo-800 flex flex-col items-center gap-2 col-span-2"><span>🎨</span>Generate Graphic (AI)</button>
+                  <button onClick={() => { setAttachmentMode('generate_image'); playSuccessSound(); }} className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 text-[10px] font-bold text-indigo-800 flex flex-col items-center gap-2"><span>🎨</span>Generate Graphic (AI)</button>
+                  <button onClick={() => { setAttachmentMode('generate_video'); playSuccessSound(); }} className="p-4 rounded-2xl bg-rose-50 border border-rose-100 text-[10px] font-bold text-rose-800 flex flex-col items-center gap-2"><span>🎥</span>Generate Video (AI)</button>
                 </div>
               ) : attachmentMode === 'generate_image' ? (
                 <div className="space-y-4">
@@ -626,6 +737,30 @@ const App: React.FC = () => {
                     className="w-full bg-indigo-500 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 disabled:opacity-50"
                   >
                     {isGeneratingImage ? 'Generating...' : 'Create & Attach Graphic'}
+                  </button>
+                  <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
+                </div>
+              ) : attachmentMode === 'generate_video' ? (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <h4 className="font-bold text-rose-800">AI Video Generator</h4>
+                    <p className="text-[10px] text-gray-500 uppercase">Describe an educational animation to create</p>
+                  </div>
+                  <input 
+                    type="text" 
+                    autoFocus 
+                    value={videoPrompt} 
+                    onChange={e => setVideoPrompt(e.target.value)} 
+                    placeholder="e.g. How the heart pumps blood..." 
+                    className="w-full p-3 bg-rose-50/50 border-2 border-rose-100 rounded-xl outline-none text-sm" 
+                  />
+                  <div className="bg-amber-50 p-2 rounded-lg text-[10px] text-amber-800 font-medium">✨ High quality video. May take up to 2 minutes to generate.</div>
+                  <button 
+                    onClick={handleAiVideoGeneration} 
+                    disabled={!videoPrompt.trim() || isGeneratingVideo} 
+                    className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 disabled:opacity-50"
+                  >
+                    {isGeneratingVideo ? 'Generating...' : 'Create & Attach Video'}
                   </button>
                   <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
                 </div>

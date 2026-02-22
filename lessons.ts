@@ -77,5 +77,33 @@ export const LESSON_DATA: Record<string, Record<number, LessonContent>> = {
     3: { title: "Famous Paintings", theory: "Artists like Van Gogh and Da Vinci used paint to express emotions and stories.", question: "Who painted 'The Starry Night'?" },
     4: { title: "Sculpture", theory: "Sculpture is art that you can walk around. It can be made of clay, stone, or wood.", question: "Is a statue a 2D or 3D piece of art?" },
     5: { title: "Texture in Art", theory: "Texture is how an object feels or looks like it feels (rough, smooth, soft).", question: "What word describes the texture of sandpaper?" }
+  },
+  digital: {
+    1: { title: "What is a Computer?", theory: "A computer is an electronic device that processes data. It has hardware (parts you can touch) and software (programs).", question: "Is a mouse hardware or software?" },
+    2: { title: "Internet Safety", theory: "Never share your password or personal info with strangers online. Use strong passwords with numbers and symbols.", question: "True or False: It is safe to share your home address on a public chat." },
+    3: { title: "Using Search Engines", theory: "Search engines help you find info on the web. Use specific keywords to get better results.", question: "What do we call the words you type into a search engine?" },
+    4: { title: "Email Basics", theory: "Email is like a digital letter. You need an email address and the recipient's address to send one.", question: "What symbol is always found in an email address?" },
+    5: { title: "Digital Citizenship", theory: "Be kind and respectful online, just like in real life. This is called 'Netiquette'.", question: "What is the polite way to behave on the internet called?" }
+  },
+  agriculture: {
+    1: { title: "What is Farming?", theory: "Farming is growing crops and raising animals for food, clothes, and other products.", question: "Name one thing we get from farming besides food." },
+    2: { title: "Parts of a Seed", theory: "A seed has a coat for protection, a store of food, and a tiny baby plant inside.", question: "What is the outer layer of a seed called?" },
+    3: { title: "Soil and Water", theory: "Plants need healthy soil with nutrients and regular water to grow strong.", question: "True or False: Plants can grow in just any kind of dirt without water." },
+    4: { title: "Tools for Farming", theory: "Farmers use tools like hoes, rakes, and tractors to prepare land and harvest crops.", question: "Which large machine do farmers use to pull heavy equipment?" },
+    5: { title: "Sustainable Farming", theory: "Sustainable farming means taking care of the land so it can produce food for a long time.", question: "Why is it important to protect the soil?" }
+  },
+  civics: {
+    1: { title: "What is Government?", theory: "A government is a group of people who make rules and laws for a country or community.", question: "Why do we need laws in a community?" },
+    2: { title: "Rights and Duties", theory: "Rights are things you are allowed to do. Duties are things you should do, like following laws.", question: "Is voting a right or a duty?" },
+    3: { title: "Community Helpers", theory: "People like doctors, teachers, and police officers work to help everyone in the community.", question: "Who helps keep people safe in a community?" },
+    4: { title: "The Voting Process", theory: "Voting is how people choose their leaders. In a democracy, every vote counts.", question: "What do we call the process of choosing a leader by casting votes?" },
+    5: { title: "Being a Good Citizen", theory: "Good citizens help others, respect the environment, and follow the rules.", question: "How can you be a good citizen at school?" }
+  },
+  business: {
+    1: { title: "What is a Business?", theory: "A business is an organization that sells goods or services to make a profit.", question: "If you sell lemonade, are you running a business?" },
+    2: { title: "Profit and Loss", theory: "Profit is the money you make after paying all costs. Loss is when you spend more than you earn.", question: "If you spend $5 and earn $8, what is your profit?" },
+    3: { title: "Marketing Your Idea", theory: "Marketing is how you tell people about your product so they want to buy it.", question: "What is a common way to tell people about a new product?" },
+    4: { title: "Customer Service", theory: "Treating customers with respect and helping them makes them want to come back.", question: "Why is it important to be polite to customers?" },
+    5: { title: "Starting Small", theory: "Many big businesses started as small ideas. Hard work and planning are key to success.", question: "True or False: You need a huge factory to start a business." }
   }
 };

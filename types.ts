@@ -6,7 +6,16 @@ export enum MessageType {
   NOTE = 'note',
   LINK = 'link',
   AUDIO = 'audio',
-  IMAGE = 'image'
+  IMAGE = 'image',
+  VIDEO = 'video'
+}
+
+export enum EducationLevel {
+  PRE_SCHOOL = 'pre-school',
+  ELEMENTARY = 'elementary',
+  PRIMARY = 'primary',
+  SECONDARY = 'secondary',
+  TERTIARY = 'tertiary'
 }
 
 export interface Message {
@@ -22,8 +31,12 @@ export interface Message {
     url?: string;
     audioData?: string; // Base64 encoded audio
     imageData?: string; // Base64 encoded image
+    videoUrl?: string;  // URL to the generated video
     duration?: number;  // Seconds
     isHighQuality?: boolean;
+    isDownloaded?: boolean;
+    educationLevel?: EducationLevel;
+    yearOfStudy?: number;
   };
 }
 

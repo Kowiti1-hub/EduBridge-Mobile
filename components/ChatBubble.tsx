@@ -5,6 +5,8 @@ import { Message, MessageType } from '../types';
 interface ChatBubbleProps {
   message: Message;
   onShare?: (message: Message) => void;
+  onDownload?: (message: Message) => void;
+  isOffline?: boolean;
 }
 
 const ProgressBar: React.FC<{ current: number; total: number; isComplete?: boolean }> = ({ current, total, isComplete }) => {
@@ -58,14 +60,16 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   );
 };
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare, onDownload, isOffline }) => {
   const isUser = message.type === MessageType.USER;
   const isSystem = message.type === MessageType.SYSTEM;
   const isNote = message.type === MessageType.NOTE;
   const isLink = message.type === MessageType.LINK;
   const isAudio = message.type === MessageType.AUDIO;
   const isImage = message.type === MessageType.IMAGE;
+  const isVideo = message.type === MessageType.VIDEO;
   const isBot = message.type === MessageType.BOT;
+  const isDownloaded = !!message.metadata?.isDownloaded;
 
   if (isSystem) return <div className="flex justify-center my-4"><span className="bg-blue-100 text-blue-800 text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-semibold">{message.content}</span></div>;
 
@@ -106,20 +110,60 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare }) => {
       );
     }
 
+    if (isVideo && message.metadata?.videoUrl) {
+      return (
+        <div className="relative group rounded-xl overflow-hidden shadow-md bg-black">
+          <video 
+            src={message.metadata.videoUrl} 
+            controls 
+            className="w-full max-h-72"
+            poster="https://picsum.photos/seed/video/400/225?blur=2"
+          />
+          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[8px] text-white font-black uppercase shadow-sm bg-rose-600/80">
+            AI Video
+          </div>
+        </div>
+      );
+    }
+
     const isLesson = !!message.metadata?.lessonNum;
     const isComplete = !!message.metadata?.isComplete;
     if (isLesson && message.metadata) {
       const lines = message.content.split('\n\n');
       return (
         <>
-          <div className={`font-bold ${isComplete ? 'text-yellow-700' : 'text-emerald-800'}`}>{isComplete ? '🎓 COURSE COMPLETED' : lines[0]}</div>
+          <div className="flex justify-between items-start">
+            <div className={`font-bold ${isComplete ? 'text-yellow-700' : 'text-emerald-800'}`}>{isComplete ? '🎓 COURSE COMPLETED' : lines[0]}</div>
+            {isDownloaded && (
+              <span className="text-[8px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-1 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Offline
+              </span>
+            )}
+          </div>
           <ProgressBar current={message.metadata.lessonNum || 0} total={message.metadata.totalLessons || 1} isComplete={isComplete} />
           <div className="text-gray-700 italic leading-relaxed">{lines.slice(1).join('\n\n')}</div>
         </>
       );
     }
 
-    return <div className="leading-relaxed whitespace-pre-wrap">{message.content}</div>;
+    return (
+      <div className="leading-relaxed whitespace-pre-wrap">
+        {isDownloaded && !isLesson && (
+          <div className="mb-2 flex justify-end">
+            <span className="text-[8px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-1 shadow-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Offline
+            </span>
+          </div>
+        )}
+        {message.content}
+      </div>
+    );
   };
 
   return (
@@ -127,6 +171,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare }) => {
       <div className={`max-w-[85%] px-4 py-2 rounded-2xl shadow-sm text-sm relative ${isUser ? 'bg-emerald-100 text-emerald-900 rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none border border-gray-100'} ${message.isUssd ? 'font-mono border-2 border-emerald-500 bg-slate-900 text-emerald-400' : ''}`}>
         {renderContent()}
         <div className="text-[10px] text-gray-400 mt-2 text-right flex items-center justify-end gap-2">
+          {(isBot || isNote || isLink || isAudio || isImage || isVideo) && onDownload && !isDownloaded && (
+            <button 
+              onClick={() => onDownload(message)} 
+              disabled={isOffline}
+              className="text-blue-700 hover:bg-blue-200 font-bold flex items-center gap-1.5 bg-blue-50 px-2 py-1 rounded-full transition-all active:scale-95 border border-blue-100 disabled:opacity-30"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Save
+            </button>
+          )}
           {isBot && onShare && (
             <button onClick={() => onShare(message)} className="text-emerald-700 hover:bg-emerald-200 font-bold flex items-center gap-1.5 bg-emerald-50 px-2 py-1 rounded-full transition-all active:scale-95 border border-emerald-100">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>

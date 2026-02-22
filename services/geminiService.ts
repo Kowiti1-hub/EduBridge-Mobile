@@ -101,3 +101,30 @@ export const generateEducationalImage = async (prompt: string, subject: string |
     return null;
   }
 };
+
+export const generateEducationalVideo = async (prompt: string, subject: string | null) => {
+  const model = 'veo-3.1-fast-generate-preview';
+  const enhancedPrompt = `A simple, clear educational animation for a student learning ${subject || 'general knowledge'}. Topic: ${prompt}. Style: Clean, 2D animation, educational, minimalist, easy to follow.`;
+  
+  try {
+    let operation = await ai.models.generateVideos({
+      model,
+      prompt: enhancedPrompt,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9'
+      }
+    });
+
+    // Polling will be handled in the component for better UI feedback
+    return operation;
+  } catch (error) {
+    console.error("Video Generation Error:", error);
+    throw error;
+  }
+};
+
+export const getVideosOperation = async (operation: any) => {
+  return await ai.operations.getVideosOperation({ operation });
+};

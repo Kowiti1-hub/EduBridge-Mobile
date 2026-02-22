@@ -9,7 +9,11 @@ export const SUBJECTS: Subject[] = [
   { id: 'finance', title: 'Financial Literacy', icon: '💰', description: 'Savings, Budgeting, and Basic Economics.' },
   { id: 'history', title: 'History', icon: '🏛️', description: 'Learn about past events and civilizations.' },
   { id: 'geography', title: 'Geography', icon: '🌍', description: "Explore Earth's features and human populations." },
-  { id: 'art', title: 'Art', icon: '🎨', description: 'Discover painting, sculpture, and creative expression.' }
+  { id: 'art', title: 'Art', icon: '🎨', description: 'Discover painting, sculpture, and creative expression.' },
+  { id: 'digital', title: 'Digital Literacy', icon: '💻', description: 'Learn computer basics, internet safety, and digital skills.' },
+  { id: 'agriculture', title: 'Agriculture', icon: '🌱', description: 'Basics of farming, crop management, and sustainability.' },
+  { id: 'civics', title: 'Civics', icon: '🗳️', description: 'Understand government, rights, and community duties.' },
+  { id: 'business', title: 'Entrepreneurship', icon: '🚀', description: 'How to start and manage a small business.' }
 ];
 
 export const USSD_MENU = `
@@ -23,6 +27,10 @@ Reply with number:
 6. History
 7. Geography
 8. Art
+9. Digital Literacy
+10. Agriculture
+11. Civics
+12. Entrepreneurship
 0. Help
 
 ---------------------
@@ -33,8 +41,8 @@ COMMANDS:
 *5#  - Attachment Menu
 *2#  - Previous Lesson
 0 or *0# - Help Guide
-1-8 - Select Subject
-*1*-*8* - Jump to Subject
+1-12 - Select Subject
+*1*-*12* - Jump to Subject
 "Next" - Next lesson
 "Menu" - Exit course
 
@@ -52,8 +60,8 @@ COMMANDS:
 *5#  - Attachment Menu
 *2#  - Previous Lesson
 0 or *0# - This Help Guide
-1-8 - Select Subject
-*1*-*8* - Jump to Subject
+1-12 - Select Subject
+*1*-*12* - Jump to Subject
 "Next" - Continue lesson
 "Menu" - Return to subjects
 
