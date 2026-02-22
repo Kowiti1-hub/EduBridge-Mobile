@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType, Subject, LessonContent } from './types';
+import { Message, MessageType, Subject } from './types';
 import { USSD_MENU, SUBJECTS, HELP_MESSAGE } from './constants';
 import { LESSON_DATA } from './lessons';
 import ChatBubble from './components/ChatBubble';
@@ -25,8 +24,11 @@ const App: React.FC = () => {
   const [isCourseCompleted, setIsCourseCompleted] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [attachmentMode, setAttachmentMode] = useState<'menu' | 'note' | 'audio' | 'image' | 'generate_image' | 'link'>('menu');
+  const [imageQuality, setImageQuality] = useState<'low' | 'high'>('low');
   const [noteInput, setNoteInput] = useState('');
   const [linkInput, setLinkInput] = useState('');
   const [imagePrompt, setImagePrompt] = useState('');
@@ -34,6 +36,7 @@ const App: React.FC = () => {
   const [isOptimizingImage, setIsOptimizingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [sharingMessage, setSharingMessage] = useState<Message | null>(null);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   
   // Audio Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -46,24 +49,129 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
+  // Audio Feedback Implementation
+  const playTone = (freq: number, duration: number, type: 'sine' | 'triangle' | 'square' = 'sine', volume = 0.05) => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) { console.warn("Audio Context Error", e); }
+  };
+
+  const playSuccessSound = () => playTone(880, 0.1, 'sine');
+  const playErrorSound = () => playTone(220, 0.2, 'triangle', 0.1);
+  const playNavigationSound = () => playTone(440, 0.05, 'sine');
+
+  const addMessage = (content: string, type: MessageType, isUssd: boolean = false, metadata?: any) => {
+    const newMessage: Message = {
+      id: Date.now().toString() + Math.random().toString(36).substring(7),
+      type,
+      content,
+      timestamp: new Date(),
+      isUssd,
+      metadata
+    };
+    setMessages(prev => [...prev, newMessage]);
+  };
+
+  const deliverLesson = (subjectId: string, lessonNum: number) => {
+    const lesson = LESSON_DATA[subjectId]?.[lessonNum];
+    if (lesson) {
+      const content = `${lesson.title}\n\n${lesson.theory}\n\nQuestion: ${lesson.question}`;
+      addMessage(content, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS });
+      speakFeedback(lesson.title);
+    }
+  };
+
+  const speakFeedback = (text: string) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.3;
+    window.speechSynthesis.speak(utterance);
+  };
+
   useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Load persisted state
+    const savedMessages = localStorage.getItem('edubridge_messages');
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        setMessages(parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) })));
+      } catch (e) { console.error("Failed to load messages", e); }
+    }
+
+    const savedState = localStorage.getItem('edubridge_state');
+    if (savedState) {
+      try {
+        const { subject, lesson, view: savedView } = JSON.parse(savedState);
+        if (subject) setCurrentSubject(subject);
+        if (lesson) setCurrentLesson(lesson);
+        if (savedView) setView(savedView);
+      } catch (e) { console.error("Failed to load state", e); }
+    }
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        setIsListening(false);
-        handleUssdInput(transcript);
+      recognition.onstart = () => {
+        setIsListening(true);
+        setInterimTranscript('');
       };
 
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
+      recognition.onresult = (event: any) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            const transcript = event.results[i][0].transcript;
+            setInput(transcript);
+            setInterimTranscript('');
+            setIsListening(false);
+            handleUssdInput(transcript);
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+        setInterimTranscript(interim);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed') {
+          playErrorSound();
+          addMessage("Microphone access denied. Please enable it in your browser settings.", MessageType.BOT);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        setInterimTranscript('');
+      };
+
       recognitionRef.current = recognition;
+    } else {
+      setIsSpeechSupported(false);
     }
   }, []);
 
@@ -71,61 +179,261 @@ const App: React.FC = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+    // Persist messages
+    localStorage.setItem('edubridge_messages', JSON.stringify(messages));
   }, [messages, isThinking]);
 
-  // Helper for audible feedback tones (Web Audio API)
-  const playTone = (freq: number, duration: number, type: 'sine' | 'square' | 'sawtooth' | 'triangle' = 'sine') => {
-    try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextClass) return;
-      
-      const audioCtx = new AudioContextClass();
-      const oscillator = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-      
-      // Gentle gain ramp to avoid clicks
-      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.01);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + duration);
-    } catch (e) {
-      console.warn("Audio feedback tone failed to play", e);
-    }
-  };
-
-  const playSuccessSound = () => playTone(880, 0.15); // High A
-  const playErrorSound = () => playTone(220, 0.3, 'triangle'); // Low A buzz
-
-  // Helper for audible feedback speech
-  const speakFeedback = (text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel(); // Stop current speech
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.3;
-    utterance.pitch = 1;
-    window.speechSynthesis.speak(utterance);
-  };
+  useEffect(() => {
+    // Persist app state
+    localStorage.setItem('edubridge_state', JSON.stringify({
+      subject: currentSubject,
+      lesson: currentLesson,
+      view
+    }));
+  }, [currentSubject, currentLesson, view]);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
-      alert("Speech recognition is not supported in this browser.");
+      if (!isSpeechSupported) {
+        addMessage("Speech recognition is not supported in your browser.", MessageType.BOT);
+        playErrorSound();
+      }
       return;
     }
+    
     if (isListening) {
       recognitionRef.current.stop();
-      setIsListening(false);
     } else {
-      setIsListening(true);
-      recognitionRef.current.start();
+      try {
+        recognitionRef.current.start();
+        playNavigationSound();
+      } catch (e) {
+        console.error("Speech start error", e);
+        setIsListening(false);
+      }
     }
+  };
+
+  const handleSummarize = async () => {
+    if (!currentSubject || isThinking) return;
+    if (isOffline) {
+      addMessage("Cannot summarize while offline. Please check your connection.", MessageType.BOT);
+      playErrorSound();
+      return;
+    }
+    const theory = LESSON_DATA[currentSubject.id]?.[currentLesson]?.theory;
+    if (!theory) return;
+    setIsThinking(true);
+    const summary = await summarizeTheory(theory);
+    setIsThinking(false);
+    addMessage(`Summarize Lesson ${currentLesson}`, MessageType.USER);
+    addMessage(`📝 *Recap:* ${summary}`, MessageType.BOT);
+    playSuccessSound();
+  };
+
+  const shareViaSms = () => {
+    if (!sharingMessage) return;
+    const context = currentSubject ? ` [${currentSubject.title} L${currentLesson}]` : "";
+    const body = `EduBridge Lesson${context}: ${sharingMessage.content.slice(0, 100)}... Learn more at edubridge.org`;
+    window.location.href = `sms:?body=${encodeURIComponent(body)}`;
+    setSharingMessage(null);
+    playSuccessSound();
+  };
+
+  const shareViaWhatsApp = () => {
+    if (!sharingMessage) return;
+    const context = currentSubject ? ` *[${currentSubject.title} - L${currentLesson}]*` : "";
+    const body = `📚 *EduBridge*${context}\n\n${sharingMessage.content.slice(0, 200)}...\n\n🔗 edubridge.org`;
+    window.location.href = `https://wa.me/?text=${encodeURIComponent(body)}`;
+    setSharingMessage(null);
+    playSuccessSound();
+  };
+
+  const compressImage = (base64Str: string, quality: 'low' | 'high'): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_DIM = quality === 'high' ? 1200 : 600;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_DIM) { height *= MAX_DIM / width; width = MAX_DIM; }
+        } else {
+          if (height > MAX_DIM) { width *= MAX_DIM / height; height = MAX_DIM; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality === 'high' ? 0.8 : 0.4));
+      };
+    });
+  };
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setIsOptimizingImage(true);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const optimizedImage = await compressImage(reader.result as string, imageQuality);
+        addMessage("Image Attachment", MessageType.IMAGE, false, { imageData: optimizedImage, isHighQuality: imageQuality === 'high' });
+        addMessage(`Shared image in ${imageQuality === 'high' ? 'High Quality' : 'Data-Saver'} mode.`, MessageType.BOT);
+        setIsOptimizingImage(false);
+        setIsAttachmentMenuOpen(false);
+        setAttachmentMode('menu');
+        playSuccessSound();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAiImageGeneration = async () => {
+    if (!imagePrompt.trim()) return;
+    if (isOffline) {
+      addMessage("AI Image generation requires an internet connection.", MessageType.BOT);
+      playErrorSound();
+      return;
+    }
+    setIsGeneratingImage(true);
+    speakFeedback("Generating educational graphic...");
+    const base64Image = await generateEducationalImage(imagePrompt, currentSubject?.title || null);
+    setIsGeneratingImage(false);
+    
+    if (base64Image) {
+      addMessage(`Educational Graphic: ${imagePrompt}`, MessageType.IMAGE, false, { imageData: base64Image, isHighQuality: false });
+      addMessage(`AI generated a low-bandwidth graphic for "${imagePrompt}" 🎨`, MessageType.BOT);
+      setIsAttachmentMenuOpen(false);
+      setAttachmentMode('menu');
+      setImagePrompt('');
+      playSuccessSound();
+    } else {
+      playErrorSound();
+      addMessage("Sorry, I couldn't generate that image. Please try a different description.", MessageType.BOT);
+    }
+  };
+
+  const handleSendLink = () => {
+    if (!linkInput.trim()) return;
+    addMessage("Educational Resource", MessageType.LINK, false, { url: linkInput.trim() });
+    setLinkInput('');
+    setAttachmentMode('menu');
+    setIsAttachmentMenuOpen(false);
+    playSuccessSound();
+  };
+
+  const handleUssdInput = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setInput('');
+    const command = trimmed.toLowerCase();
+
+    if (trimmed === '*5#') {
+      setIsAttachmentMenuOpen(true);
+      setAttachmentMode('menu');
+      playSuccessSound();
+      return;
+    }
+
+    // Handle USSD subject navigation like *1*, *2*, etc.
+    const ussdSubjectMatch = trimmed.match(/^\*(\d+)\*$/) || trimmed.match(/^\*(\d+)#$/);
+    if (ussdSubjectMatch) {
+      const num = parseInt(ussdSubjectMatch[1]);
+      if (num >= 1 && num <= SUBJECTS.length) {
+        const sub = SUBJECTS[num - 1];
+        setCurrentSubject(sub);
+        setCurrentLesson(1);
+        setIsCourseCompleted(false);
+        setView('chat');
+        addMessage(trimmed, MessageType.USER, true);
+        deliverLesson(sub.id, 1);
+        playSuccessSound();
+        return;
+      }
+    }
+
+    if (command === 'next' || command === 'next lesson' || command.includes('next')) {
+      if (isCourseCompleted) return;
+      const nextLesson = currentLesson + 1;
+      if (nextLesson <= TOTAL_LESSONS && currentSubject) {
+        addMessage('Next Lesson', MessageType.USER);
+        setCurrentLesson(nextLesson);
+        deliverLesson(currentSubject.id, nextLesson);
+        playSuccessSound();
+        return;
+      } else if (nextLesson > TOTAL_LESSONS && currentSubject) {
+        setIsCourseCompleted(true);
+        setShowConfetti(true);
+        addMessage(`🎓 Course Complete! Great job with ${currentSubject.title}.`, MessageType.BOT, false, { lessonNum: TOTAL_LESSONS, totalLessons: TOTAL_LESSONS, isComplete: true });
+        playSuccessSound();
+        setTimeout(() => setShowConfetti(false), 5000);
+        return;
+      }
+    }
+
+    // Handle Previous Lesson navigation via command or USSD codes *2# and *99#
+    if (command === 'previous' || command === 'back' || trimmed === '*99#' || trimmed === '*2#') {
+      if (currentSubject && currentLesson > 1) {
+        const prevLesson = currentLesson - 1;
+        setCurrentLesson(prevLesson);
+        deliverLesson(currentSubject.id, prevLesson);
+        playNavigationSound();
+        return;
+      }
+    }
+
+    if (command === 'menu') { setView('home'); playNavigationSound(); return; }
+    if (trimmed === '0' || trimmed === '*0#') {
+      addMessage(trimmed, MessageType.USER, true);
+      addMessage(HELP_MESSAGE, MessageType.BOT, true);
+      playSuccessSound();
+      return;
+    }
+
+    const num = parseInt(trimmed);
+    if (!isNaN(num) && num >= 1 && num <= SUBJECTS.length && view === 'home') {
+      const sub = SUBJECTS[num - 1];
+      setCurrentSubject(sub);
+      setCurrentLesson(1);
+      setIsCourseCompleted(false);
+      setView('chat');
+      deliverLesson(sub.id, 1);
+      playSuccessSound();
+    } else if (view === 'chat' && !isAttachmentMenuOpen) {
+      handleSend(trimmed);
+    } else if (isAttachmentMenuOpen && attachmentMode === 'menu') {
+      const menuMap: Record<string, 'menu' | 'note' | 'audio' | 'image' | 'generate_image' | 'link'> = { 
+        '1': 'note', 
+        '2': 'link', 
+        '3': 'audio', 
+        '4': 'image',
+        '5': 'generate_image'
+      };
+      if (menuMap[trimmed]) {
+        setAttachmentMode(menuMap[trimmed]);
+        playSuccessSound();
+      } else {
+        playErrorSound();
+      }
+    } else {
+      playErrorSound();
+    }
+  };
+
+  const handleSend = async (text: string) => {
+    if (!text.trim()) return;
+    addMessage(text, MessageType.USER);
+    if (isOffline) {
+      addMessage("You are offline. I'll respond once you're back online! 📡", MessageType.BOT);
+      playErrorSound();
+      return;
+    }
+    setIsThinking(true);
+    const response = await generateEducationalResponse(text, messages, currentSubject?.title || null);
+    setIsThinking(false);
+    addMessage(response, MessageType.BOT);
   };
 
   const startRecording = async () => {
@@ -134,34 +442,25 @@ const App: React.FC = () => {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
-          const base64Audio = reader.result as string;
-          sendAudioNote(base64Audio, recordingTime);
+          addMessage("Voice Note", MessageType.AUDIO, false, { audioData: reader.result as string, duration: recordingTime });
+          addMessage("Voice note received. 🎙️", MessageType.BOT);
+          setIsAttachmentMenuOpen(false);
+          setAttachmentMode('menu');
+          playSuccessSound();
         };
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach(t => t.stop());
       };
-
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
-      timerRef.current = window.setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-      alert("Please allow microphone access to record audio notes.");
-    }
+      timerRef.current = window.setInterval(() => setRecordingTime(p => p + 1), 1000);
+    } catch (e) { playErrorSound(); }
   };
 
   const stopRecording = () => {
@@ -172,471 +471,82 @@ const App: React.FC = () => {
     }
   };
 
-  const sendAudioNote = (audioData: string, duration: number) => {
-    addMessage("Voice Note", MessageType.AUDIO, false, { audioData, duration });
-    addMessage("I've received your voice note. It has been compressed for low bandwidth storage! 🎙️", MessageType.BOT);
-    setIsAttachmentMenuOpen(false);
-    setAttachmentMode('menu');
-  };
-
-  // Low-bandwidth optimization for images
-  const compressImage = (base64Str: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = base64Str;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 600; // Limit resolution for low-data
-        const MAX_HEIGHT = 600;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        // Using 0.5 quality for significant bandwidth savings
-        resolve(canvas.toDataURL('image/jpeg', 0.5));
-      };
-    });
-  };
-
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setIsOptimizingImage(true);
-      speakFeedback("Optimizing image for low bandwidth...");
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64Image = reader.result as string;
-        const optimizedImage = await compressImage(base64Image);
-        sendImageAttachment(optimizedImage);
-        setIsOptimizingImage(false);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const sendImageAttachment = (imageData: string) => {
-    addMessage("Educational Image", MessageType.IMAGE, false, { imageData });
-    addMessage("Thank you for sharing the image! It has been optimized to save 80% data. 🖼️", MessageType.BOT);
-    setIsAttachmentMenuOpen(false);
-    setAttachmentMode('menu');
-    playSuccessSound();
-    speakFeedback("Image sent.");
-  };
-
-  const handleAiImageGeneration = async () => {
-    if (!imagePrompt.trim()) return;
-    setIsGeneratingImage(true);
-    speakFeedback("Generating educational graphic...");
-    const base64Image = await generateEducationalImage(imagePrompt, currentSubject?.title || null);
-    setIsGeneratingImage(false);
-    
-    if (base64Image) {
-      addMessage(`AI Generated Graphic: ${imagePrompt}`, MessageType.IMAGE, false, { imageData: base64Image });
-      addMessage("I've generated this educational graphic for you! 🎨", MessageType.BOT);
-      setIsAttachmentMenuOpen(false);
-      setAttachmentMode('menu');
-      setImagePrompt('');
-      speakFeedback("Graphic generated successfully.");
-    } else {
-      addMessage("I'm sorry, I couldn't generate that image right now. Please try again.", MessageType.BOT);
-      playErrorSound();
-      speakFeedback("Image generation failed.");
-    }
-  };
-
-  const handleSummarize = async () => {
-    if (!currentSubject || isThinking) return;
-    const theory = LESSON_DATA[currentSubject.id][currentLesson]?.theory;
-    if (!theory) return;
-
-    setIsThinking(true);
-    speakFeedback("Summarizing lesson theory...");
-    const summary = await summarizeTheory(theory);
-    setIsThinking(false);
-    
-    addMessage(`Summarize Lesson ${currentLesson}`, MessageType.USER);
-    addMessage(`📝 *Bite-sized Recap:*\n${summary}`, MessageType.BOT);
-    playSuccessSound();
-  };
-
-  const handleShare = (message: Message) => {
-    setSharingMessage(message);
-    speakFeedback("Sharing options open.");
-  };
-
-  const closeShareModal = () => {
-    setSharingMessage(null);
-  };
-
-  const shareViaSms = () => {
-    if (!sharingMessage) return;
-    const context = currentSubject ? ` [${currentSubject.title} L${currentLesson}]` : "";
-    const body = `EduBridge Lesson${context}: ${sharingMessage.content.slice(0, 100)}... Learn more at edubridge.org`;
-    window.location.href = `sms:?body=${encodeURIComponent(body)}`;
-    closeShareModal();
-    playSuccessSound();
-  };
-
-  const shareViaWhatsApp = () => {
-    if (!sharingMessage) return;
-    const context = currentSubject ? ` *[${currentSubject.title} - Lesson ${currentLesson}]*` : "";
-    const body = `📚 *EduBridge Learning Content*${context}\n\n${sharingMessage.content.slice(0, 200)}...\n\n👉 Learn more at: https://edubridge.org`;
-    window.location.href = `https://wa.me/?text=${encodeURIComponent(body)}`;
-    closeShareModal();
-    playSuccessSound();
-  }
-
-  const shareViaLink = () => {
-    if (!sharingMessage || !currentSubject) return;
-    const link = `https://edubridge.org/share/${currentSubject.id}/L${currentLesson}`;
-    navigator.clipboard.writeText(link).then(() => {
-      alert("Low-bandwidth link copied to clipboard!");
-      closeShareModal();
-      playSuccessSound();
-    });
-  };
-
-  const addMessage = (content: string, type: MessageType, isUssd = false, metadata?: any) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      content,
-      type,
-      timestamp: new Date(),
-      isUssd,
-      metadata
-    };
-    setMessages(prev => [...prev, newMessage]);
-  };
-
-  const deliverLesson = (subjectId: string, lessonNum: number) => {
-    const subjectContent = LESSON_DATA[subjectId];
-    if (subjectContent && subjectContent[lessonNum]) {
-      const lesson = subjectContent[lessonNum];
-      const formattedContent = `📖 *${lesson.title}*\n\n${lesson.theory}\n\n❓ *Question:* ${lesson.question}`;
-      addMessage(formattedContent, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS });
-    }
-  };
-
-  const selectSubject = (subject: Subject) => {
-    setCurrentSubject(subject);
-    setCurrentLesson(1);
-    setIsCourseCompleted(false);
-    setShowConfetti(false);
-    setView('chat');
-    addMessage(`Started: ${subject.title}`, MessageType.SYSTEM);
-    addMessage(`Hello! Let's learn ${subject.title}.`, MessageType.BOT);
-    deliverLesson(subject.id, 1);
-  };
-
   const triggerUssd = () => {
-    // If already in chat, *123# acts as a 'back to menu' command
-    if (view === 'chat') {
-      setView('home');
-      playSuccessSound();
-      speakFeedback("Returning home.");
-      return;
-    }
-    
-    // If at home, *123# opens the portal
+    if (view === 'chat') { setView('home'); playNavigationSound(); return; }
     setView('chat');
     addMessage("*123#", MessageType.USER, true);
     addMessage(USSD_MENU, MessageType.BOT, true);
     playSuccessSound();
-    speakFeedback("Main menu opened.");
-  };
-
-  const handleSendLink = () => {
-    if (!linkInput.trim()) return;
-    const url = linkInput.trim();
-    addMessage(`Check out this educational resource!`, MessageType.LINK, false, { url });
-    addMessage("Resource link has been pinned to your history! 🔗", MessageType.BOT);
-    setLinkInput('');
-    setAttachmentMode('menu');
-    setIsAttachmentMenuOpen(false);
-    speakFeedback("Resource link sent.");
-  };
-
-  const handleSendNote = () => {
-    if (!noteInput.trim()) return;
-    addMessage(noteInput, MessageType.NOTE);
-    addMessage("Your study note has been pinned to your lesson history! 📌", MessageType.BOT);
-    setNoteInput('');
-    setAttachmentMode('menu');
-    setIsAttachmentMenuOpen(false);
-    speakFeedback("Study note saved.");
-  };
-
-  const handleUssdInput = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setInput('');
-
-    // Shortcut for Attachment Menu
-    if (trimmed === '*5#') {
-      addMessage("*5#", MessageType.USER, true);
-      setIsAttachmentMenuOpen(true);
-      setAttachmentMode('menu');
-      playSuccessSound();
-      speakFeedback("Attachment menu opened.");
-      return;
-    }
-
-    // Number navigation while attachment menu is open
-    if (isAttachmentMenuOpen && attachmentMode === 'menu') {
-      if (trimmed === '1') {
-        addMessage("1", MessageType.USER, true);
-        setAttachmentMode('note');
-        speakFeedback("Text note mode.");
-        return;
-      }
-      if (trimmed === '2') {
-        addMessage("2", MessageType.USER, true);
-        setAttachmentMode('link');
-        speakFeedback("Send resource link mode.");
-        return;
-      }
-      if (trimmed === '3') {
-        addMessage("3", MessageType.USER, true);
-        setAttachmentMode('audio');
-        speakFeedback("Voice note mode.");
-        return;
-      }
-      if (trimmed === '4') {
-        addMessage("4", MessageType.USER, true);
-        fileInputRef.current?.click();
-        speakFeedback("Selecting image.");
-        return;
-      }
-      if (trimmed === '5') {
-        addMessage("5", MessageType.USER, true);
-        setAttachmentMode('generate_image');
-        speakFeedback("AI image generation mode.");
-        return;
-      }
-      
-      // Invalid input in attachment menu
-      if (!['1','2','3','4','5'].includes(trimmed) && trimmed.length === 1 && !isNaN(parseInt(trimmed))) {
-        playErrorSound();
-        speakFeedback("Invalid menu selection.");
-      }
-    }
-
-    const command = trimmed.toLowerCase();
-    if (command === 'next' || command === 'next lesson') {
-      if (isCourseCompleted) return;
-      const nextLesson = currentLesson + 1;
-      if (nextLesson <= TOTAL_LESSONS && currentSubject) {
-        addMessage('Next', MessageType.USER);
-        setCurrentLesson(nextLesson);
-        deliverLesson(currentSubject.id, nextLesson);
-        speakFeedback("Moving to the next lesson.");
-        playSuccessSound();
-        return;
-      } else if (nextLesson > TOTAL_LESSONS && currentSubject) {
-        addMessage('Next', MessageType.USER);
-        setIsCourseCompleted(true);
-        setShowConfetti(true);
-        addMessage(`🎓 Congratulations! You have successfully completed the ${currentSubject.title} course. Type 'Menu' to choose another subject.`, MessageType.BOT, false, { lessonNum: TOTAL_LESSONS, totalLessons: TOTAL_LESSONS, isComplete: true });
-        speakFeedback("Course completed! Congratulations!");
-        setTimeout(() => setShowConfetti(false), 5000);
-        return;
-      }
-    }
-
-    if (command === 'previous' || command === 'previous lesson' || trimmed === '*99#') {
-      if (currentSubject) {
-        if (isCourseCompleted) {
-          addMessage('Previous', MessageType.USER);
-          setIsCourseCompleted(false);
-          setShowConfetti(false);
-          setCurrentLesson(TOTAL_LESSONS);
-          deliverLesson(currentSubject.id, TOTAL_LESSONS);
-          speakFeedback("Returning to the previous lesson.");
-          playSuccessSound();
-          return;
-        }
-        const prevLesson = currentLesson - 1;
-        if (prevLesson >= 1) {
-          addMessage('Previous', MessageType.USER);
-          setCurrentLesson(prevLesson);
-          deliverLesson(currentSubject.id, prevLesson);
-          speakFeedback("Returning to the previous lesson.");
-          playSuccessSound();
-          return;
-        } else {
-          addMessage("You are already at the first lesson.", MessageType.BOT);
-          speakFeedback("You are already at the start of the course.");
-          return;
-        }
-      }
-    }
-
-    if (command === 'menu') {
-      setView('home');
-      speakFeedback("Returning to the main menu.");
-      return;
-    }
-
-    // Help center shortcut (0 or *0#)
-    if (trimmed === '0' || trimmed === '*0#') {
-      addMessage(trimmed, MessageType.USER, true);
-      addMessage(HELP_MESSAGE, MessageType.BOT, true);
-      speakFeedback("Opening help guide.");
-      return;
-    }
-
-    if (trimmed.startsWith('*') && trimmed.endsWith('#')) {
-      const parts = trimmed.slice(1, -1).split('*');
-      if (parts[0] === '123') {
-        if (parts.length === 1) { triggerUssd(); return; }
-        if (parts.length === 2) {
-          const num = parseInt(parts[1]);
-          if (!isNaN(num) && num >= 1 && num <= SUBJECTS.length) {
-            addMessage(trimmed, MessageType.USER, true);
-            selectSubject(SUBJECTS[num - 1]);
-            playSuccessSound();
-            speakFeedback(`Selected ${SUBJECTS[num - 1].title}.`);
-            return;
-          }
-        }
-      }
-      // If we reach here, it was a USSD-like code but invalid
-      addMessage(trimmed, MessageType.USER, true);
-      addMessage("Invalid service code. Please try *123# or *5#.", MessageType.BOT);
-      playErrorSound();
-      speakFeedback("Invalid service code.");
-      return;
-    }
-
-    const num = parseInt(trimmed);
-    if (!isNaN(num) && num >= 1 && num <= SUBJECTS.length) {
-      addMessage(trimmed, MessageType.USER, true);
-      selectSubject(SUBJECTS[num - 1]);
-      speakFeedback(`Starting ${SUBJECTS[num - 1].title}.`);
-    } else if (!isNaN(num)) {
-      // It's a number but out of bounds
-      addMessage(trimmed, MessageType.USER, true);
-      addMessage("Invalid selection. Reply with 1-8 or 0 for help.", MessageType.BOT);
-      playErrorSound();
-      speakFeedback("Invalid selection.");
-    } else {
-      handleSend(trimmed);
-    }
-  };
-
-  const handleSend = async (text: string) => {
-    if (!text.trim()) return;
-    setInput('');
-    addMessage(text, MessageType.USER);
-    setIsThinking(true);
-    const response = await generateEducationalResponse(text, messages, currentSubject?.title || null);
-    setIsThinking(false);
-    addMessage(response, MessageType.BOT);
   };
 
   return (
     <div className="flex flex-col h-full max-w-lg mx-auto bg-gray-50 border-x border-gray-200 shadow-2xl relative overflow-hidden">
+      {isListening && (
+        <div className="absolute inset-0 bg-emerald-600/95 backdrop-blur-xl z-[100] flex flex-col items-center justify-center text-white p-8 text-center animate-in fade-in duration-300">
+          <div className="relative mb-12">
+            <div className="absolute inset-0 bg-white/20 rounded-full animate-ping scale-150" />
+            <div className="absolute inset-0 bg-white/10 rounded-full animate-pulse scale-125" />
+            <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-emerald-600 text-4xl shadow-2xl relative z-10">
+              🎙️
+            </div>
+          </div>
+          <h2 className="text-3xl font-black tracking-tight mb-2">Listening...</h2>
+          <p className="text-emerald-100/80 text-sm font-medium mb-8 max-w-[200px]">
+            {interimTranscript || "Speak your question or command clearly"}
+          </p>
+          <div className="flex flex-col gap-4 w-full max-w-[240px]">
+            <button 
+              onClick={toggleListening}
+              className="w-full py-4 bg-white text-emerald-600 rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest text-xs"
+            >
+              Stop Listening
+            </button>
+            <p className="text-[10px] text-emerald-200/50 uppercase tracking-widest font-bold">Powered by Web Speech API</p>
+          </div>
+        </div>
+      )}
       {showConfetti && Array.from({ length: 20 }).map((_, i) => (
-        <div key={i} className="confetti" style={{ 
-          left: `${Math.random() * 100}%`, 
-          backgroundColor: ['#10b981', '#fbbf24', '#3b82f6', '#ef4444'][Math.floor(Math.random() * 4)],
-          animationDelay: `${Math.random() * 2}s`
-        }} />
+        <div key={i} className="confetti" style={{ left: `${Math.random() * 100}%`, backgroundColor: ['#10b981', '#fbbf24', '#3b82f6', '#ef4444'][Math.floor(Math.random() * 4)], animationDelay: `${Math.random() * 2}s` }} />
       ))}
-      <div className="absolute top-0 w-full h-6 bg-black/10 flex items-center justify-between px-4 pointer-events-none z-20">
-         <span className="text-[10px] text-white font-bold">EduNet 4G</span>
-         <div className="flex gap-1 items-center">
-           <div className="w-1 h-3 bg-white/80 rounded-sm"></div>
-           <div className="w-1 h-3 bg-white/80 rounded-sm"></div>
-           <div className="w-1 h-3 bg-white/40 rounded-sm"></div>
-           <span className="text-[10px] text-white font-bold ml-1">82%</span>
-         </div>
-      </div>
       <header className="bg-emerald-600 text-white p-4 pt-8 shadow-md flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           {view === 'chat' && (
             <button onClick={() => setView('home')} className="p-1 hover:bg-emerald-700 rounded-full transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
           <div>
-            <h1 className="font-bold text-lg leading-tight">EduBridge</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-bold text-lg leading-tight">EduBridge</h1>
+              {isOffline && (
+                <span className="bg-red-500 text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter animate-pulse">Offline</span>
+              )}
+            </div>
             <p className="text-[10px] opacity-90 uppercase tracking-tighter">Low Data Education Network</p>
           </div>
         </div>
         <button onClick={triggerUssd} className="text-[10px] bg-white/20 px-2 py-1 rounded border border-white/30 font-mono active:bg-white/40">*123#</button>
       </header>
 
-      {/* HORIZONTAL NAVIGATION BAR - TOP ALIGNED */}
       {view === 'chat' && currentSubject && (
         <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-gray-200 px-3 py-2 flex items-center justify-between shadow-sm">
-          <button
-            onClick={() => handleUssdInput('Previous')}
-            disabled={currentLesson === 1 && !isCourseCompleted}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              currentLesson === 1 && !isCourseCompleted
-                ? 'text-gray-300 cursor-not-allowed'
-                : 'text-gray-600 hover:bg-gray-100 active:scale-95'
-            }`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-            </svg>
+          <button onClick={() => handleUssdInput('Previous')} disabled={currentLesson === 1} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${currentLesson === 1 ? 'text-gray-300' : 'text-gray-600 hover:bg-gray-100 active:scale-95'}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
             Prev
           </button>
-
-          <div className={`px-4 py-1.5 rounded-full flex flex-col items-center transition-all ${isCourseCompleted ? 'bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200' : 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'}`}>
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
-              {isCourseCompleted ? 'Completed' : `Lesson ${currentLesson} / ${TOTAL_LESSONS}`}
+          <div className="flex flex-col items-center">
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none text-emerald-800">
+              {isCourseCompleted ? 'Done' : `Lesson ${currentLesson} / ${TOTAL_LESSONS}`}
             </span>
-            <div className="w-12 h-1 bg-gray-200 rounded-full mt-1 overflow-hidden">
-               <div 
-                 className={`h-full transition-all duration-500 ${isCourseCompleted ? 'bg-yellow-400' : 'bg-emerald-500'}`} 
-                 style={{ width: `${(currentLesson/TOTAL_LESSONS) * 100}%` }}
-               />
-            </div>
-            {/* SUMMARIZE LESSON BUTTON */}
             {!isCourseCompleted && (
-              <button 
-                onClick={handleSummarize}
-                disabled={isThinking}
-                className="mt-1 px-3 py-1 bg-emerald-500 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-600 active:scale-95 transition-all flex items-center gap-1 disabled:opacity-50 shadow-sm"
-              >
-                <span>✨</span>
-                Summarize Lesson
+              <button onClick={handleSummarize} disabled={isThinking} className="mt-1 px-3 py-1 bg-emerald-500 text-white rounded-lg text-[9px] font-bold hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-1 shadow-sm transition-transform active:scale-95">
+                <span>✨</span> Summarize Lesson
               </button>
             )}
           </div>
-
-          <button
-            onClick={() => handleUssdInput('Next')}
-            disabled={isCourseCompleted}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              isCourseCompleted
-                ? 'text-gray-300 cursor-not-allowed'
-                : 'text-emerald-600 hover:bg-emerald-50 active:scale-95'
-            }`}
-          >
+          <button onClick={() => handleUssdInput('Next')} disabled={isCourseCompleted} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isCourseCompleted ? 'text-gray-300' : 'text-emerald-600 hover:bg-emerald-50 active:scale-95'}`}>
             Next
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
           </button>
         </div>
       )}
@@ -645,318 +555,142 @@ const App: React.FC = () => {
         {view === 'home' ? (
           <div className="pb-20">
             <div className="bg-white m-4 p-5 rounded-2xl shadow-sm border border-emerald-100">
-              <h2 className="text-xl font-bold text-emerald-800 mb-2">Welcome Back! 📖</h2>
-              <p className="text-sm text-gray-600 mb-4">You have used <span className="font-bold">120 KB</span> of data today. Education for everyone, everywhere.</p>
-              <div className="bg-emerald-50 p-3 rounded-lg flex items-center gap-3 border border-emerald-100">
-                <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white font-bold text-lg">💡</div>
-                <p className="text-xs text-emerald-900 font-medium italic">"An investment in knowledge pays the best interest."</p>
-              </div>
+              <h2 className="text-xl font-bold text-emerald-800 mb-1">Welcome! 📖</h2>
+              <p className="text-xs text-gray-500 mb-4">You've saved 2.4MB of data today.</p>
+              <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 font-medium italic text-[11px] text-emerald-900">"Education is the most powerful weapon which you can use to change the world."</div>
             </div>
-            <h2 className="px-6 text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Subjects</h2>
-            <SubjectGrid onSelect={selectSubject} />
-            <div className="p-4 mt-4">
-              <button onClick={triggerUssd} className="w-full bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between group hover:bg-slate-900 transition-all active:scale-[0.98]">
-                <div className="text-left"><span className="block font-bold">Launch USSD Portal</span><span className="text-[10px] opacity-60">Interactive Menu (*123#)</span></div>
-                <span className="text-2xl group-hover:translate-x-1 transition-transform">📱</span>
-              </button>
-            </div>
+            <SubjectGrid onSelect={(s) => { 
+              const num = SUBJECTS.findIndex(x => x.id === s.id) + 1;
+              handleUssdInput(num.toString());
+            }} />
           </div>
         ) : (
           <div className="p-4 pb-32">
-            {messages.length === 0 && <div className="text-center py-20"><div className="text-4xl mb-4">👋</div><p className="text-gray-500 text-sm">Send a message, dial a number, or use your voice!</p></div>}
-            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} onShare={handleShare} />)}
-            {(isThinking || isOptimizingImage) && (
-              <div className="flex justify-start mb-3">
-                <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-2">
-                  <div className="flex gap-1">
-                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                    <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce"></div>
-                  </div>
-                  {isOptimizingImage && <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Optimizing Image...</span>}
+            {messages.map((msg) => <ChatBubble key={msg.id} message={msg} onShare={(m) => { setSharingMessage(m); playNavigationSound(); }} />)}
+            {(isThinking || isGeneratingImage) && (
+              <div className="flex flex-col gap-1 p-3 bg-white rounded-xl w-fit ml-2 shadow-sm animate-pulse border border-gray-100">
+                <div className="flex gap-1">
+                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
                 </div>
+                {isGeneratingImage && <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-tighter">AI Drawing...</span>}
               </div>
             )}
           </div>
         )}
       </main>
 
-      {/* Sharing Modal */}
       {sharingMessage && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-200">
-          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-gray-100 flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-gray-800 leading-none">Share Content</h3>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-1">Mobile Optimized</p>
-              </div>
-              <button onClick={closeShareModal} className="text-gray-400 p-1 hover:text-gray-600">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="p-5 space-y-4">
-              <button 
-                onClick={shareViaWhatsApp}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-all active:scale-[0.98] group"
-              >
-                <div className="w-12 h-12 bg-[#25D366] text-white rounded-2xl flex items-center justify-center text-xl shadow-sm group-hover:scale-110 transition-transform">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.94 3.659 1.437 5.634 1.437h.005c6.558 0 11.895-5.335 11.898-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                  </svg>
-                </div>
-                <div className="text-left">
-                  <span className="block font-bold text-gray-800">Share via WhatsApp</span>
-                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-tighter">Rich Formatting</span>
-                </div>
-              </button>
-
-              <button 
-                onClick={shareViaSms}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 transition-all active:scale-[0.98] group"
-              >
-                <div className="w-12 h-12 bg-indigo-500 text-white rounded-2xl flex items-center justify-center text-xl shadow-sm group-hover:scale-110 transition-transform">💬</div>
-                <div className="text-left">
-                  <span className="block font-bold text-gray-800">Share via SMS</span>
-                  <span className="text-[10px] text-indigo-700 font-bold uppercase tracking-tighter">No data required</span>
-                </div>
-              </button>
-
-              <button 
-                onClick={shareViaLink}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-all active:scale-[0.98] group"
-              >
-                <div className="w-12 h-12 bg-blue-500 text-white rounded-2xl flex items-center justify-center text-xl shadow-sm group-hover:scale-110 transition-transform">🔗</div>
-                <div className="text-left">
-                  <span className="block font-bold text-gray-800">Bite-sized Link</span>
-                  <span className="text-[10px] text-blue-700 font-bold uppercase tracking-tighter">Ultra-low 2KB load</span>
-                </div>
-              </button>
-            </div>
-
-            <div className="bg-gray-50 p-4 text-[10px] text-gray-400 text-center font-medium leading-tight">
-              EduBridge sharing is optimized for the local network infrastructure.
-            </div>
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden p-5 space-y-4 animate-in zoom-in-95">
+            <h3 className="font-bold text-gray-800">Share Lesson</h3>
+            <button onClick={shareViaWhatsApp} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 text-emerald-800 font-bold border border-emerald-100 active:scale-95 transition-transform"><span className="text-xl">💬</span> WhatsApp</button>
+            <button onClick={shareViaSms} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-indigo-50 text-indigo-800 font-bold border border-indigo-100 active:scale-95 transition-transform"><span className="text-xl">📱</span> Share via SMS</button>
+            <button onClick={() => setSharingMessage(null)} className="w-full py-3 text-gray-400 font-bold text-sm">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Hidden File Input for Images */}
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImageSelect} 
-        accept="image/*" 
-        className="hidden" 
-      />
-
-      {/* Attachment Menu Modal */}
-      {view === 'chat' && isAttachmentMenuOpen && (
+      {isAttachmentMenuOpen && (
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm z-30 flex items-end justify-center p-4">
-          <div className="w-full bg-white rounded-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800">Learning Attachments</h3>
-              <button onClick={() => { setIsAttachmentMenuOpen(false); setAttachmentMode('menu'); stopRecording(); }} className="text-gray-400 p-1">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="p-4 min-h-[220px] flex flex-col justify-center">
+          <div className="w-full bg-white rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center"><h3 className="font-bold text-gray-800">Learning Tools</h3><button onClick={() => { setIsAttachmentMenuOpen(false); setAttachmentMode('menu'); }} className="text-gray-400">✕</button></div>
+            <div className="p-4 min-h-[220px]">
               {attachmentMode === 'menu' ? (
                 <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => setAttachmentMode('note')}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-amber-50 bg-amber-50 hover:border-amber-200 transition-all active:scale-95 group relative"
-                  >
-                    <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-amber-200 rounded-full flex items-center justify-center text-[8px] font-bold text-amber-700">1</div>
-                    <div className="w-10 h-10 bg-amber-400 text-white rounded-full flex items-center justify-center text-lg shadow-sm">📌</div>
-                    <span className="text-[10px] font-bold text-amber-800">Text Note</span>
-                  </button>
-                  <button 
-                    onClick={() => setAttachmentMode('link')}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-blue-50 bg-blue-50 hover:border-blue-200 transition-all active:scale-95 group relative"
-                  >
-                    <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-blue-200 rounded-full flex items-center justify-center text-[8px] font-bold text-blue-700">2</div>
-                    <div className="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center text-lg shadow-sm">🔗</div>
-                    <span className="text-[10px] font-bold text-blue-800">Resource</span>
-                  </button>
-                  <button 
-                    onClick={() => setAttachmentMode('audio')}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-emerald-50 bg-emerald-50 hover:border-emerald-200 transition-all active:scale-95 group relative"
-                  >
-                    <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-emerald-200 rounded-full flex items-center justify-center text-[8px] font-bold text-emerald-700">3</div>
-                    <div className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center text-lg shadow-sm">🎙️</div>
-                    <span className="text-[10px] font-bold text-emerald-800">Voice Note</span>
-                  </button>
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-purple-50 bg-purple-50 hover:border-purple-200 transition-all active:scale-95 group relative"
-                  >
-                    <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-purple-200 rounded-full flex items-center justify-center text-[8px] font-bold text-purple-700">4</div>
-                    <div className="w-10 h-10 bg-purple-500 text-white rounded-full flex items-center justify-center text-lg shadow-sm">🖼️</div>
-                    <span className="text-[10px] font-bold text-purple-800">Send Image</span>
-                  </button>
-                  <button 
-                    onClick={() => setAttachmentMode('generate_image')}
-                    className="flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-rose-50 bg-rose-50 hover:border-rose-200 transition-all active:scale-95 group relative col-span-2"
-                  >
-                    <div className="absolute top-1.5 left-1.5 w-4 h-4 bg-rose-200 rounded-full flex items-center justify-center text-[8px] font-bold text-rose-700">5</div>
-                    <div className="w-10 h-10 bg-rose-500 text-white rounded-full flex items-center justify-center text-lg shadow-sm">✨</div>
-                    <span className="text-[10px] font-bold text-rose-800">AI Generate Graphic</span>
-                  </button>
-                </div>
-              ) : attachmentMode === 'note' ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-amber-600 uppercase mb-1 block">New Study Note</label>
-                    <textarea 
-                      autoFocus
-                      value={noteInput}
-                      onChange={(e) => setNoteInput(e.target.value)}
-                      placeholder="Type a reminder or key fact..."
-                      className="w-full h-24 p-3 bg-amber-50/50 border-2 border-amber-100 rounded-xl outline-none focus:border-amber-400 text-sm italic font-medium"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setAttachmentMode('menu')} className="flex-1 py-3 rounded-xl font-bold text-gray-500 text-sm">Back</button>
-                    <button 
-                      onClick={handleSendNote}
-                      disabled={!noteInput.trim()}
-                      className="flex-[2] bg-amber-400 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50"
-                    >
-                      Send Study Note
-                    </button>
-                  </div>
-                </div>
-              ) : attachmentMode === 'link' ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-[10px] font-bold text-blue-600 uppercase mb-1 block">Send Resource Link</label>
-                    <input 
-                      type="url"
-                      autoFocus
-                      value={linkInput}
-                      onChange={(e) => setLinkInput(e.target.value)}
-                      placeholder="https://example.com/resource"
-                      className="w-full p-3 bg-blue-50/50 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-400 text-sm font-medium"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setAttachmentMode('menu')} className="flex-1 py-3 rounded-xl font-bold text-gray-500 text-sm">Back</button>
-                    <button 
-                      onClick={handleSendLink}
-                      disabled={!linkInput.trim()}
-                      className="flex-[2] bg-blue-500 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50"
-                    >
-                      Send Resource
-                    </button>
-                  </div>
+                  <button onClick={() => { setAttachmentMode('note'); playSuccessSound(); }} className="p-4 rounded-2xl bg-amber-50 border border-amber-100 text-[10px] font-bold text-amber-800 flex flex-col items-center gap-2"><span>📌</span>Text Note</button>
+                  <button onClick={() => { setAttachmentMode('link'); playSuccessSound(); }} className="p-4 rounded-2xl bg-blue-50 border border-blue-100 text-[10px] font-bold text-blue-800 flex flex-col items-center gap-2"><span>🔗</span>Resource Link</button>
+                  <button onClick={() => { setAttachmentMode('audio'); playSuccessSound(); }} className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-[10px] font-bold text-emerald-800 flex flex-col items-center gap-2"><span>🎙️</span>Voice Note</button>
+                  <button onClick={() => { setAttachmentMode('image'); playSuccessSound(); }} className="p-4 rounded-2xl bg-purple-50 border border-purple-100 text-[10px] font-bold text-purple-800 flex flex-col items-center gap-2"><span>🖼️</span>Send Photo</button>
+                  <button onClick={() => { setAttachmentMode('generate_image'); playSuccessSound(); }} className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 text-[10px] font-bold text-indigo-800 flex flex-col items-center gap-2 col-span-2"><span>🎨</span>Generate Graphic (AI)</button>
                 </div>
               ) : attachmentMode === 'generate_image' ? (
                 <div className="space-y-4">
-                   <div className="text-center">
-                    <h4 className="text-rose-800 font-bold mb-1">AI Educational Graphic</h4>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Describe what you want to see</p>
+                  <div className="text-center">
+                    <h4 className="font-bold text-indigo-800">AI Graphic Generator</h4>
+                    <p className="text-[10px] text-gray-500 uppercase">Describe an educational image to create</p>
                   </div>
-                  <div>
-                    <textarea 
-                      autoFocus
-                      value={imagePrompt}
-                      onChange={(e) => setImagePrompt(e.target.value)}
-                      placeholder="e.g., A simple diagram of a cell, a math triangle..."
-                      className="w-full h-24 p-3 bg-rose-50/50 border-2 border-rose-100 rounded-xl outline-none focus:border-rose-400 text-sm italic font-medium"
-                      disabled={isGeneratingImage}
-                    />
+                  <input 
+                    type="text" 
+                    autoFocus 
+                    value={imagePrompt} 
+                    onChange={e => setImagePrompt(e.target.value)} 
+                    placeholder="e.g. Parts of a flower diagram..." 
+                    className="w-full p-3 bg-indigo-50/50 border-2 border-indigo-100 rounded-xl outline-none text-sm" 
+                  />
+                  <div className="bg-emerald-50 p-2 rounded-lg text-[10px] text-emerald-800 font-medium">✨ Optimized for low data. Graphics are simple and clear.</div>
+                  <button 
+                    onClick={handleAiImageGeneration} 
+                    disabled={!imagePrompt.trim() || isGeneratingImage} 
+                    className="w-full bg-indigo-500 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 disabled:opacity-50"
+                  >
+                    {isGeneratingImage ? 'Generating...' : 'Create & Attach Graphic'}
+                  </button>
+                  <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
+                </div>
+              ) : attachmentMode === 'image' ? (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <h4 className="font-bold text-purple-800">Choose Quality</h4>
+                    <p className="text-[10px] text-gray-500 uppercase">Save data or send high-res</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setAttachmentMode('menu')} className="flex-1 py-3 rounded-xl font-bold text-gray-500 text-sm" disabled={isGeneratingImage}>Back</button>
-                    <button 
-                      onClick={handleAiImageGeneration}
-                      disabled={!imagePrompt.trim() || isGeneratingImage}
-                      className={`flex-[2] bg-rose-500 text-white py-3 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2`}
-                    >
-                      {isGeneratingImage ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          Generating...
-                        </>
-                      ) : 'Generate Graphic'}
-                    </button>
+                  <div className="flex flex-col gap-2">
+                    <button onClick={() => { setImageQuality('low'); playNavigationSound(); }} className={`p-3 rounded-xl border-2 flex justify-between items-center ${imageQuality === 'low' ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-100' : 'bg-white border-gray-100'}`}><div><span className="block font-bold text-sm">Low Data</span><span className="text-[10px] text-emerald-600 font-bold">~20KB • Recommended</span></div>{imageQuality === 'low' && '✓'}</button>
+                    <button onClick={() => { setImageQuality('high'); playNavigationSound(); }} className={`p-3 rounded-xl border-2 flex justify-between items-center ${imageQuality === 'high' ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-100' : 'bg-white border-gray-100'}`}><div><span className="block font-bold text-sm">High Quality</span><span className="text-[10px] text-indigo-600 font-bold">~150KB • Uses more data</span></div>{imageQuality === 'high' && '✓'}</button>
                   </div>
+                  {imageQuality === 'high' && <div className="bg-amber-50 border border-amber-100 p-2 rounded-lg text-[10px] text-amber-800 font-medium">⚠️ Warning: Increased data usage on weak signals.</div>}
+                  <button onClick={() => fileInputRef.current?.click()} className="w-full bg-purple-500 text-white py-3 rounded-xl font-bold shadow-md active:scale-95">Select & Send Image</button>
+                  <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
+                </div>
+              ) : attachmentMode === 'link' ? (
+                <div className="space-y-4">
+                  <input type="url" autoFocus value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://..." className="w-full p-3 bg-blue-50/50 border-2 border-blue-100 rounded-xl outline-none text-sm" />
+                  <button onClick={handleSendLink} disabled={!linkInput.trim()} className="w-full bg-blue-500 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 disabled:opacity-50">Share Resource</button>
+                  <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
+                </div>
+              ) : attachmentMode === 'audio' ? (
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <button onPointerDown={startRecording} onPointerUp={stopRecording} onPointerLeave={stopRecording} className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-xl transition-all active:scale-90 ${isRecording ? 'bg-red-500' : 'bg-emerald-500 text-white'}`}>{isRecording ? '⏺️' : '🎙️'}</button>
+                  <span className={`font-mono text-xl ${isRecording ? 'text-red-500 animate-pulse' : 'text-emerald-800'}`}>0:{recordingTime.toString().padStart(2, '0')}</span>
+                  <button onClick={() => setAttachmentMode('menu')} className="text-xs text-gray-400">Back</button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-6 py-4">
-                  <div className="text-center">
-                    <h4 className="text-emerald-800 font-bold mb-1">Voice Recording</h4>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
-                      {isRecording ? "Recording Audio..." : "Ready to record"}
-                    </p>
-                  </div>
-
-                  <div className="relative flex items-center justify-center">
-                    {isRecording && (
-                      <div className="absolute w-32 h-32 bg-emerald-100 rounded-full animate-ping opacity-20"></div>
-                    )}
-                    <button 
-                      onPointerDown={startRecording}
-                      onPointerUp={stopRecording}
-                      onPointerLeave={stopRecording}
-                      className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl shadow-xl transition-all active:scale-90 ${isRecording ? 'bg-emerald-600 text-white' : 'bg-emerald-500 text-white'}`}
-                    >
-                      {isRecording ? '⏺️' : '🎙️'}
-                    </button>
-                  </div>
-
-                  <div className="flex flex-col items-center gap-2">
-                    <span className={`font-mono text-2xl font-bold ${isRecording ? 'text-red-500 animate-pulse' : 'text-emerald-800'}`}>
-                      0:{recordingTime.toString().padStart(2, '0')}
-                    </span>
-                    <p className="text-[10px] text-gray-400 font-medium italic">Hold button to record, release to send.</p>
-                  </div>
-
-                  <button 
-                    onClick={() => { setAttachmentMode('menu'); stopRecording(); }}
-                    className="text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    Cancel
-                  </button>
+                <div className="space-y-4">
+                  <textarea autoFocus value={noteInput} onChange={e => setNoteInput(e.target.value)} placeholder="Type a study note..." className="w-full h-24 p-3 bg-amber-50/50 border-2 border-amber-100 rounded-xl outline-none text-sm" />
+                  <button onClick={() => { addMessage(noteInput, MessageType.NOTE); setNoteInput(''); setAttachmentMode('menu'); setIsAttachmentMenuOpen(false); playSuccessSound(); }} disabled={!noteInput.trim()} className="w-full bg-amber-400 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 disabled:opacity-50">Save Note</button>
+                  <button onClick={() => setAttachmentMode('menu')} className="w-full py-2 text-gray-400 text-sm">Back</button>
                 </div>
               )}
-            </div>
-            <div className="bg-gray-50 p-3 text-[10px] text-gray-400 text-center font-medium leading-tight">
-              {isOptimizingImage 
-                ? "⚡ HIGH PRIORITY: Resizing and re-encoding for minimum data usage..." 
-                : `Data Saving: ${attachmentMode === 'audio' ? 'Simulated 8KB/sec compression' : attachmentMode === 'image' || attachmentMode === 'generate_image' ? 'Automatic resolution reduction' : 'Minimal payload size'}`
-              }
             </div>
           </div>
         </div>
       )}
 
       {view === 'chat' && (
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gray-50/90 backdrop-blur-sm border-t border-gray-200 z-10">
-          <form onSubmit={(e) => { e.preventDefault(); handleUssdInput(input); }} className="flex items-center gap-2">
-            <div className="flex-1 bg-white rounded-full px-3 py-2 shadow-inner border border-gray-200 flex items-center gap-1.5">
-              <button type="button" onClick={toggleListening} className={`p-1.5 rounded-full transition-all ${isListening ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-emerald-500 hover:bg-emerald-50'}`}>
+        <div className="p-3 bg-gray-50/90 backdrop-blur-sm border-t border-gray-200">
+          <form onSubmit={e => { e.preventDefault(); handleUssdInput(input); }} className="flex gap-2">
+            <div className="flex-1 bg-white rounded-full px-3 py-2 border border-gray-200 flex items-center gap-1.5">
+              <button 
+                type="button" 
+                onClick={toggleListening} 
+                disabled={!isSpeechSupported}
+                className={`p-1.5 rounded-full transition-all ${!isSpeechSupported ? 'opacity-20 grayscale' : isListening ? 'bg-red-500 text-white' : 'text-gray-400 hover:text-emerald-500'}`}
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               </button>
-              
-              <button 
-                type="button" 
-                onClick={() => setIsAttachmentMenuOpen(true)}
-                className="p-1.5 rounded-full text-gray-400 hover:text-emerald-500 hover:bg-emerald-50 transition-all"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-              </button>
-
-              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type message or *123#..."} className="flex-1 outline-none text-sm py-1 bg-transparent" />
+              <button type="button" onClick={() => { setIsAttachmentMenuOpen(true); playNavigationSound(); }} className="p-1.5 text-gray-400"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-45" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg></button>
+              <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder={isListening ? "Listening..." : "Type or *123#..."} className="flex-1 outline-none text-sm" />
             </div>
-            <button type="submit" disabled={!input.trim() || isThinking} className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${!
+            <button type="submit" className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg active:scale-90 transition-transform"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></button>
+          </form>
+        </div>
+      )}
+      <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
+    </div>
+  );
+};
+
+export default App;

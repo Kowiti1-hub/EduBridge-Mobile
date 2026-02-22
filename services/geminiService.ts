@@ -60,7 +60,8 @@ export const summarizeTheory = async (theory: string) => {
   try {
     const response = await ai.models.generateContent({
       model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      // Simplified contents to just a string for better reliability with basic text tasks
+      contents: prompt,
       config: {
         systemInstruction: "You are a hyper-concise educational summarizer for low-bandwidth users.",
         temperature: 0.3,

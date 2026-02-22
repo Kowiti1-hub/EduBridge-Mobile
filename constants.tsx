@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Subject } from './types';
 
@@ -31,15 +30,18 @@ USSD HELP CENTER
 ---------------------
 COMMANDS:
 *123# - Main Menu
-*5# - Attachment Menu
+*5#  - Attachment Menu
+*2#  - Previous Lesson
 0 or *0# - Help Guide
 1-8 - Select Subject
+*1*-*8* - Jump to Subject
 "Next" - Next lesson
 "Menu" - Exit course
 
 HOW TO USE:
 1. Reply with a number.
-2. Voice/Images in *5# menu.
+2. Use *n* to switch subjects anytime.
+3. Voice/Images in *5# menu.
 `;
 
 export const HELP_MESSAGE = `
@@ -47,15 +49,18 @@ EDUBRIDGE HELP CENTER
 ---------------------
 COMMANDS:
 *123# - Main Menu
-*5# - Attachment Menu
+*5#  - Attachment Menu
+*2#  - Previous Lesson
 0 or *0# - This Help Guide
 1-8 - Select Subject
+*1*-*8* - Jump to Subject
 "Next" - Continue lesson
 "Menu" - Return to subjects
 
 HOW TO USE:
 1. Select a subject by number.
-2. Ask any question in chat.
+2. Use *n* to switch subjects anytime.
+3. Ask any question in chat.
 3. Use voice button for audio.
 4. "Attachment Menu" has Text, Links, Voice, and Images.
 

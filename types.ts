@@ -23,6 +23,7 @@ export interface Message {
     audioData?: string; // Base64 encoded audio
     imageData?: string; // Base64 encoded image
     duration?: number;  // Seconds
+    isHighQuality?: boolean;
   };
 }
 
