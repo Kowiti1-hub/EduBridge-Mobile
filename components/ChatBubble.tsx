@@ -6,6 +6,7 @@ interface ChatBubbleProps {
   message: Message;
   onShare?: (message: Message) => void;
   onDownload?: (message: Message) => void;
+  onQuizAnswer?: (subjectId: string, lessonNum: number, selectedIndex: number, correctIndex: number) => void;
   isOffline?: boolean;
 }
 
@@ -60,7 +61,10 @@ const VoicePlayer: React.FC<{ data: string; duration: number }> = ({ data, durat
   );
 };
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare, onDownload, isOffline }) => {
+const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare, onDownload, onQuizAnswer, isOffline }) => {
+  const [quizAnswered, setQuizAnswered] = useState(false);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+
   const isUser = message.type === MessageType.USER;
   const isSystem = message.type === MessageType.SYSTEM;
   const isNote = message.type === MessageType.NOTE;
@@ -68,6 +72,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare, onDownload, i
   const isAudio = message.type === MessageType.AUDIO;
   const isImage = message.type === MessageType.IMAGE;
   const isVideo = message.type === MessageType.VIDEO;
+  const isQuiz = message.type === MessageType.QUIZ;
   const isBot = message.type === MessageType.BOT;
   const isDownloaded = !!message.metadata?.isDownloaded;
 
@@ -121,6 +126,55 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, onShare, onDownload, i
           />
           <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[8px] text-white font-black uppercase shadow-sm bg-rose-600/80">
             AI Video
+          </div>
+        </div>
+      );
+    }
+
+    if (isQuiz && message.metadata?.options) {
+      return (
+        <div className="space-y-3">
+          <div className="bg-indigo-50 border-l-4 border-indigo-400 p-3 rounded-r-xl">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter">🧠 Quiz Time</span>
+            </div>
+            <p className="text-sm font-bold text-indigo-900">{message.content}</p>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {message.metadata.options.map((option: string, idx: number) => (
+              <button
+                key={idx}
+                disabled={quizAnswered}
+                onClick={() => {
+                  setQuizAnswered(true);
+                  setSelectedOption(idx);
+                  if (onQuizAnswer && message.metadata) {
+                    onQuizAnswer(
+                      message.metadata.subjectId,
+                      message.metadata.lessonNum,
+                      idx,
+                      message.metadata.correctAnswer
+                    );
+                  }
+                }}
+                className={`w-full text-left p-3 rounded-xl text-xs font-medium transition-all border-2 ${
+                  quizAnswered
+                    ? idx === message.metadata?.correctAnswer
+                      ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                      : idx === selectedOption
+                        ? 'bg-red-50 border-red-500 text-red-800'
+                        : 'bg-gray-50 border-gray-100 text-gray-400'
+                    : 'bg-white border-gray-100 hover:border-indigo-300 hover:bg-indigo-50 active:scale-95'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                    {String.fromCharCode(65 + idx)}
+                  </span>
+                  {option}
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType, Subject, EducationLevel } from './types';
+import { Message, MessageType, Subject, EducationLevel, QuizResult } from './types';
 import { USSD_MENU, SUBJECTS, HELP_MESSAGE } from './constants';
 import { LESSON_DATA } from './lessons';
 import ChatBubble from './components/ChatBubble';
@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [educationLevel, setEducationLevel] = useState<EducationLevel | null>(null);
   const [yearOfStudy, setYearOfStudy] = useState<number>(1);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
   const [input, setInput] = useState('');
   const [currentSubject, setCurrentSubject] = useState<Subject | null>(null);
   const [currentLesson, setCurrentLesson] = useState(1);
@@ -41,6 +42,8 @@ const App: React.FC = () => {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoPrompt, setVideoPrompt] = useState('');
+  const [downloadedSubjects, setDownloadedSubjects] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [isOptimizingImage, setIsOptimizingImage] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [sharingMessage, setSharingMessage] = useState<Message | null>(null);
@@ -99,6 +102,39 @@ const App: React.FC = () => {
       const content = `${lesson.title}\n\n${lesson.theory}\n\nQuestion: ${lesson.question}`;
       addMessage(content, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS });
       speakFeedback(lesson.title);
+
+      if (lesson.quiz) {
+        setTimeout(() => {
+          addMessage(lesson.quiz!.question, MessageType.QUIZ, false, { 
+            subjectId, 
+            lessonNum, 
+            options: lesson.quiz!.options,
+            correctAnswer: lesson.quiz!.correctAnswer
+          });
+        }, 1500);
+      }
+    }
+  };
+
+  const handleQuizAnswer = (subjectId: string, lessonNum: number, selectedIndex: number, correctIndex: number) => {
+    const isCorrect = selectedIndex === correctIndex;
+    const result: QuizResult = {
+      subjectId,
+      lessonNum,
+      score: isCorrect ? 1 : 0,
+      timestamp: new Date()
+    };
+
+    setQuizResults(prev => [...prev, result]);
+    
+    if (isCorrect) {
+      addMessage("Correct! Well done. 🌟", MessageType.BOT);
+      playSuccessSound();
+    } else {
+      const lesson = LESSON_DATA[subjectId]?.[lessonNum];
+      const correctAnswerText = lesson?.quiz?.options[correctIndex];
+      addMessage(`Not quite. The correct answer was: ${correctAnswerText}. Keep learning! 📚`, MessageType.BOT);
+      playErrorSound();
     }
   };
 
@@ -125,15 +161,25 @@ const App: React.FC = () => {
       } catch (e) { console.error("Failed to load messages", e); }
     }
 
+    const savedQuizResults = localStorage.getItem('edubridge_quiz_results');
+    if (savedQuizResults) {
+      try {
+        const parsed = JSON.parse(savedQuizResults);
+        setQuizResults(parsed.map((r: any) => ({ ...r, timestamp: new Date(r.timestamp) })));
+      } catch (e) { console.error("Failed to load quiz results", e); }
+    }
+
     const savedState = localStorage.getItem('edubridge_state');
     if (savedState) {
       try {
-        const { subject, lesson, view: savedView, educationLevel: savedLevel, yearOfStudy: savedYear } = JSON.parse(savedState);
+        const { subject, lesson, view: savedView, educationLevel: savedLevel, yearOfStudy: savedYear, downloadedSubjects: savedDownloads, favorites: savedFavorites } = JSON.parse(savedState);
         if (subject) setCurrentSubject(subject);
         if (lesson) setCurrentLesson(lesson);
         if (savedView) setView(savedView);
         if (savedLevel) setEducationLevel(savedLevel);
         if (savedYear) setYearOfStudy(savedYear);
+        if (savedDownloads) setDownloadedSubjects(savedDownloads);
+        if (savedFavorites) setFavorites(savedFavorites);
       } catch (e) { console.error("Failed to load state", e); }
     }
 
@@ -191,7 +237,8 @@ const App: React.FC = () => {
     }
     // Persist messages
     localStorage.setItem('edubridge_messages', JSON.stringify(messages));
-  }, [messages, isThinking]);
+    localStorage.setItem('edubridge_quiz_results', JSON.stringify(quizResults));
+  }, [messages, isThinking, quizResults]);
 
   useEffect(() => {
     // Persist app state
@@ -200,9 +247,11 @@ const App: React.FC = () => {
       lesson: currentLesson,
       educationLevel,
       yearOfStudy,
+      downloadedSubjects,
+      favorites,
       view
     }));
-  }, [currentSubject, currentLesson, view, educationLevel, yearOfStudy]);
+  }, [currentSubject, currentLesson, view, educationLevel, yearOfStudy, downloadedSubjects, favorites]);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
@@ -494,6 +543,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleToggleFavorite = (id: string) => {
+    setFavorites(prev => 
+      prev.includes(id) ? prev.filter(favId => favId !== id) : [...prev, id]
+    );
+    playNavigationSound();
+  };
+
   const handleSend = async (text: string) => {
     if (!text.trim()) return;
     addMessage(text, MessageType.USER);
@@ -508,19 +564,33 @@ const App: React.FC = () => {
     addMessage(response, MessageType.BOT);
   };
 
-  const handleDownloadSubject = (subject: Subject) => {
+  const handleDownloadSubject = async (subject: Subject) => {
     const lessons = LESSON_DATA[subject.id];
     if (!lessons) return;
 
-    addMessage(`Downloading all lessons for ${subject.title}...`, MessageType.SYSTEM);
+    if (downloadedSubjects.includes(subject.id)) {
+      addMessage(`${subject.title} is already available offline.`, MessageType.SYSTEM);
+      return;
+    }
+
+    addMessage(`📥 Pre-caching ${subject.title} for offline access...`, MessageType.SYSTEM);
     
+    // Add a subject header message
+    addMessage(`📚 *${subject.title} - Offline Study Guide*\nAll ${Object.keys(lessons).length} lessons have been cached to your device.`, MessageType.BOT, false, { isDownloaded: true });
+
     Object.entries(lessons).forEach(([num, lesson]) => {
       const lessonNum = parseInt(num);
       const content = `${lesson.title}\n\n${lesson.theory}\n\nQuestion: ${lesson.question}`;
-      addMessage(content, MessageType.BOT, false, { lessonNum, totalLessons: TOTAL_LESSONS, isDownloaded: true });
+      addMessage(content, MessageType.BOT, false, { 
+        lessonNum, 
+        totalLessons: TOTAL_LESSONS, 
+        isDownloaded: true,
+        subjectId: subject.id 
+      });
     });
 
-    addMessage(`Successfully downloaded ${Object.keys(lessons).length} lessons for ${subject.title}. You can now view them offline! ✅`, MessageType.BOT);
+    setDownloadedSubjects(prev => [...prev, subject.id]);
+    addMessage(`✅ ${subject.title} is now ready for offline learning!`, MessageType.BOT);
     playSuccessSound();
   };
 
@@ -654,6 +724,24 @@ const App: React.FC = () => {
             <div className="bg-white m-4 p-5 rounded-2xl shadow-sm border border-emerald-100">
               <h2 className="text-xl font-bold text-emerald-800 mb-1">Welcome! 📖</h2>
               <p className="text-xs text-gray-500 mb-4">You've saved 2.4MB of data today.</p>
+              
+              {quizResults.length > 0 && (
+                <div className="mb-4 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">Quiz Performance</span>
+                    <span className="text-[10px] font-bold text-indigo-800">
+                      {quizResults.filter(r => r.score === 1).length} / {quizResults.length} Correct
+                    </span>
+                  </div>
+                  <div className="w-full bg-indigo-200 h-1.5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-indigo-600 transition-all duration-500" 
+                      style={{ width: `${(quizResults.filter(r => r.score === 1).length / quizResults.length) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 font-medium italic text-[11px] text-emerald-900">"Education is the most powerful weapon which you can use to change the world."</div>
             </div>
             <SubjectGrid 
@@ -662,6 +750,9 @@ const App: React.FC = () => {
                 handleUssdInput(num.toString());
               }} 
               onDownload={handleDownloadSubject}
+              onToggleFavorite={handleToggleFavorite}
+              downloadedSubjects={downloadedSubjects}
+              favorites={favorites}
               isOffline={isOffline}
             />
           </div>
@@ -673,6 +764,7 @@ const App: React.FC = () => {
                 message={msg} 
                 onShare={(m) => { setSharingMessage(m); playNavigationSound(); }} 
                 onDownload={handleDownloadMessage}
+                onQuizAnswer={handleQuizAnswer}
                 isOffline={isOffline}
               />
             ))}

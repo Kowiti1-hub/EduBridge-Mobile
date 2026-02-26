@@ -6,43 +6,21 @@ import { Subject } from '../types';
 interface SubjectGridProps {
   onSelect: (subject: Subject) => void;
   onDownload: (subject: Subject) => void;
+  onToggleFavorite: (id: string) => void;
+  downloadedSubjects: string[];
+  favorites: string[];
   isOffline: boolean;
 }
 
-const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffline }) => {
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [downloadedSubjects, setDownloadedSubjects] = useState<string[]>([]);
+const SubjectGrid: React.FC<SubjectGridProps> = ({ 
+  onSelect, 
+  onDownload, 
+  onToggleFavorite,
+  downloadedSubjects,
+  favorites,
+  isOffline 
+}) => {
   const [downloadingStatus, setDownloadingStatus] = useState<Record<string, number>>({});
-
-  // Load favorites and downloads from localStorage on mount
-  useEffect(() => {
-    const savedFavorites = localStorage.getItem('edubridge_favorites');
-    if (savedFavorites) {
-      try { setFavorites(JSON.parse(savedFavorites)); } catch (e) { console.error("Failed to parse favorites", e); }
-    }
-
-    const savedDownloads = localStorage.getItem('edubridge_downloads');
-    if (savedDownloads) {
-      try { setDownloadedSubjects(JSON.parse(savedDownloads)); } catch (e) { console.error("Failed to parse downloads", e); }
-    }
-  }, []);
-
-  // Save favorites to localStorage when they change
-  useEffect(() => {
-    localStorage.setItem('edubridge_favorites', JSON.stringify(favorites));
-  }, [favorites]);
-
-  // Save downloads to localStorage when they change
-  useEffect(() => {
-    localStorage.setItem('edubridge_downloads', JSON.stringify(downloadedSubjects));
-  }, [downloadedSubjects]);
-
-  const toggleFavorite = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setFavorites(prev => 
-      prev.includes(id) ? prev.filter(favId => favId !== id) : [...prev, id]
-    );
-  };
 
   const handleDownload = (e: React.MouseEvent, subject: Subject) => {
     e.stopPropagation();
@@ -57,7 +35,6 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffli
         progress = 100;
         clearInterval(interval);
         onDownload(subject);
-        setDownloadedSubjects(prev => [...prev, subject.id]);
         setDownloadingStatus(prev => {
           const next = { ...prev };
           delete next[subject.id];
@@ -122,6 +99,14 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffli
                     FAV
                   </span>
                 )}
+                {downloadedSubjects.includes(subject.id) && (
+                  <span className="text-[8px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full uppercase font-black tracking-widest flex items-center gap-0.5 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Offline Ready
+                  </span>
+                )}
               </div>
               <p className="text-xs text-gray-400 font-medium leading-tight line-clamp-2">
                 {subject.description}
@@ -141,7 +126,7 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffli
             <div className="flex flex-col items-center justify-between self-stretch gap-1">
               <div className="flex flex-col gap-1">
                 <button
-                  onClick={(e) => toggleFavorite(e, subject.id)}
+                  onClick={(e) => { e.stopPropagation(); onToggleFavorite(subject.id); }}
                   className={`p-2.5 rounded-full transition-all duration-300 hover:scale-110 active:scale-90 ${
                     isFavorite 
                       ? 'text-rose-500 bg-white shadow-sm ring-1 ring-rose-100' 
@@ -170,7 +155,7 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffli
                   disabled={isOffline || downloadedSubjects.includes(subject.id) || downloadingStatus[subject.id] !== undefined}
                   className={`p-2.5 rounded-full transition-all duration-300 hover:scale-110 active:scale-90 disabled:opacity-30 disabled:scale-100 ${
                     downloadedSubjects.includes(subject.id)
-                      ? 'text-emerald-600 bg-emerald-50 ring-1 ring-emerald-100'
+                      ? 'text-white bg-emerald-500 shadow-lg shadow-emerald-200 ring-2 ring-emerald-100'
                       : downloadingStatus[subject.id] !== undefined
                       ? 'text-emerald-500 bg-emerald-50 animate-pulse'
                       : 'text-gray-300 hover:text-emerald-500 bg-gray-50'
@@ -178,7 +163,11 @@ const SubjectGrid: React.FC<SubjectGridProps> = ({ onSelect, onDownload, isOffli
                   aria-label="Download all lessons"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${downloadingStatus[subject.id] !== undefined ? 'animate-bounce' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    {downloadedSubjects.includes(subject.id) ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    )}
                   </svg>
                 </button>
               </div>

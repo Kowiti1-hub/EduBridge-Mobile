@@ -7,7 +7,8 @@ export enum MessageType {
   LINK = 'link',
   AUDIO = 'audio',
   IMAGE = 'image',
-  VIDEO = 'video'
+  VIDEO = 'video',
+  QUIZ = 'quiz'
 }
 
 export enum EducationLevel {
@@ -51,6 +52,18 @@ export interface LessonContent {
   title: string;
   theory: string;
   question: string;
+  quiz?: {
+    question: string;
+    options: string[];
+    correctAnswer: number; // Index of the correct option
+  };
+}
+
+export interface QuizResult {
+  subjectId: string;
+  lessonNum: number;
+  score: number; // 1 for correct, 0 for incorrect
+  timestamp: Date;
 }
 
 export interface LearningState {
